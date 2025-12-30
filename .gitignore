@@ -1,0 +1,12 @@
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
+*.log
+
+# dependencies
+node_modules/
+
+# local exports / temp repos
+_git_export/
+repo_tmp/
