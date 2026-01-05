@@ -4,6 +4,7 @@ declare(strict_types=1);
 require_once __DIR__ . '/../bootstrap.php';
 gelo_require_permissions(['withdrawals.access', 'withdrawals.return']);
 require_once __DIR__ . '/../../../API/config/database.php';
+require_once __DIR__ . '/../lib/whatsapp_ultramsg.php';
 
 if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
     gelo_redirect(GELO_BASE_URL . '/withdrawals.php');
@@ -47,7 +48,7 @@ for ($i = 0; $i < count($productIds); $i++) {
 }
 
 if (empty($toReturn)) {
-    gelo_flash_set('error', 'Informe pelo menos uma devolução.');
+    gelo_flash_set('error', 'Informe pelo menos um retorno.');
     gelo_redirect(GELO_BASE_URL . '/withdrawal_return.php?id=' . $orderId);
 }
 
@@ -71,8 +72,8 @@ try {
         gelo_redirect(GELO_BASE_URL . '/withdrawals.php');
     }
 
-    if ((string) ($order['status'] ?? '') !== 'delivered') {
-        gelo_flash_set('error', 'Devolução só é permitida após o pedido ser entregue.');
+    if ((string) ($order['status'] ?? '') !== 'saida') {
+        gelo_flash_set('error', 'Retorno só é permitido após o pedido ter saída.');
         gelo_redirect(GELO_BASE_URL . '/withdrawal.php?id=' . $orderId);
     }
 
@@ -81,7 +82,7 @@ try {
     $pay = $stmt->fetch();
     $paymentCount = is_array($pay) ? (int) ($pay['c'] ?? 0) : 0;
     if ($paymentCount > 0) {
-        gelo_flash_set('error', 'Não é possível registrar devolução após iniciar pagamentos.');
+        gelo_flash_set('error', 'Não é possível registrar retorno após iniciar pagamentos.');
         gelo_redirect(GELO_BASE_URL . '/withdrawal.php?id=' . $orderId);
     }
 
@@ -118,7 +119,7 @@ try {
         $alreadyReturned = (int) ($returnedMap[$pid] ?? 0);
         $available = $orderedQty - $alreadyReturned;
         if ($available <= 0) {
-            gelo_flash_set('error', 'Este pedido não possui itens disponíveis para devolução.');
+            gelo_flash_set('error', 'Este pedido não possui itens disponíveis para retorno.');
             gelo_redirect(GELO_BASE_URL . '/withdrawal_return.php?id=' . $orderId);
         }
         if ($qty > $available) {
@@ -166,7 +167,9 @@ try {
 
     $pdo->commit();
 
-    gelo_flash_set('success', 'Devolução registrada.');
+    gelo_whatsapp_notify_order_return($orderId, $returnId);
+
+    gelo_flash_set('success', 'Retorno registrado.');
     gelo_redirect(GELO_BASE_URL . '/withdrawal.php?id=' . $orderId);
 } catch (Throwable $e) {
     try {
@@ -176,6 +179,6 @@ try {
     } catch (Throwable $ignored) {
         // ignore
     }
-    gelo_flash_set('error', 'Erro ao registrar devolução. Tente novamente.');
+    gelo_flash_set('error', 'Erro ao registrar retorno. Tente novamente.');
     gelo_redirect(GELO_BASE_URL . '/withdrawal_return.php?id=' . $orderId);
 }

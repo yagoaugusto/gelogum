@@ -83,7 +83,12 @@ $meta = [
                 <h1 class="text-2xl font-semibold tracking-tight"><?= gelo_e($isEdit ? 'Editar usuário' : 'Novo usuário') ?></h1>
                 <p class="text-sm opacity-70 mt-1">Nome, telefone, aniversário, status e senha.</p>
             </div>
-            <a class="btn btn-ghost" href="<?= gelo_e(GELO_BASE_URL . '/users.php') ?>">Voltar</a>
+            <div class="flex items-center gap-2">
+                <?php if ($isEdit && gelo_has_permission('products.user_prices')): ?>
+                    <a class="btn btn-outline" href="<?= gelo_e(GELO_BASE_URL . '/user_product_prices.php?user_id=' . (int) $id) ?>">Preços</a>
+                <?php endif; ?>
+                <a class="btn btn-ghost" href="<?= gelo_e(GELO_BASE_URL . '/users.php') ?>">Voltar</a>
+            </div>
         </div>
 
         <?php if (is_string($success) && $success !== ''): ?>

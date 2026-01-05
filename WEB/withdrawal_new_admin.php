@@ -23,12 +23,34 @@ $comment = isset($old['comment']) ? (string) $old['comment'] : '';
 $initialItems = isset($old['items']) && is_array($old['items']) ? $old['items'] : [];
 $initialItemsJson = json_encode($initialItems, JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS | JSON_HEX_QUOT);
 $selectedUserId = isset($old['user_id']) ? (int) $old['user_id'] : 0;
+if (isset($_GET['user_id'])) {
+	$fromGet = (int) $_GET['user_id'];
+	if ($fromGet > 0) {
+		$selectedUserId = $fromGet;
+	}
+}
 
 $products = [];
 $users = [];
 try {
     $pdo = gelo_pdo();
-    $products = $pdo->query('SELECT id, title, unit_price FROM products WHERE is_active = 1 ORDER BY title ASC')->fetchAll();
+	if ($selectedUserId > 0) {
+		$stmt = $pdo->prepare('
+			SELECT
+				p.id,
+				p.title,
+				COALESCE(upp.unit_price, p.unit_price) AS unit_price
+			FROM products p
+			LEFT JOIN user_product_prices upp
+				ON upp.product_id = p.id AND upp.user_id = :user_id
+			WHERE p.is_active = 1
+			ORDER BY p.title ASC
+		');
+		$stmt->execute(['user_id' => $selectedUserId]);
+		$products = $stmt->fetchAll();
+	} else {
+		$products = $pdo->query('SELECT id, title, unit_price FROM products WHERE is_active = 1 ORDER BY title ASC')->fetchAll();
+	}
     $users = $pdo->query('SELECT id, name, phone FROM users WHERE is_active = 1 ORDER BY name ASC LIMIT 500')->fetchAll();
 } catch (Throwable $e) {
     $error = $error ?? 'Erro ao carregar dados. Verifique o banco e as migrações.';
@@ -213,9 +235,9 @@ try {
                     </div>
                 </div>
 
-                <div class="text-xs opacity-70">
-                    Ao criar o pedido, ele ficará como <span class="font-medium">Solicitado</span> → <span class="font-medium">Separado</span> → <span class="font-medium">Entregue</span>.
-                </div>
+				<div class="text-xs opacity-70">
+					Ao criar o pedido, ele ficará como <span class="font-medium">Solicitado</span> → <span class="font-medium">Saída</span>.
+				</div>
             </div>
         </form>
     </main>
@@ -586,6 +608,16 @@ try {
 	      });
 
 	      userSelectEl.addEventListener('change', updateUserSummary);
+	      userSelectEl.addEventListener('change', () => {
+	        const uid = parseInt(String(userSelectEl.value || '0'), 10);
+	        if (!uid) return;
+	        const hasItems = items.size > 0;
+	        const hasComment = (document.querySelector('textarea[name="comment"]')?.value || '').trim() !== '';
+	        if ((hasItems || hasComment) && !confirm('Trocar o cliente vai recarregar a página e limpar o que foi preenchido. Continuar?')) {
+	          return;
+	        }
+	        window.location.href = `<?= gelo_e(GELO_BASE_URL . '/withdrawal_new_admin.php') ?>?user_id=${encodeURIComponent(String(uid))}`;
+	      });
 	      updateUserSummary();
 
       addButton.addEventListener('click', addItem);

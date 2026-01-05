@@ -180,8 +180,7 @@ $pageTitle = 'Retirada #' . $id . ' · GELO';
 $activePage = 'withdrawals';
 
 $status = is_array($order) ? (string) ($order['status'] ?? '') : '';
-$isDelivered = $status === 'delivered';
-$isSeparated = $status === 'separated';
+$isSaida = $status === 'saida';
 $isCancelled = $status === 'cancelled';
 $isRequested = $status === 'requested';
 
@@ -199,18 +198,14 @@ if (bccomp($remaining, '0.00', 2) < 0) {
 }
 $isPaid = bccomp($remaining, '0.00', 2) <= 0 && bccomp($netTotal, '0.00', 2) === 1;
 
-$canCancel = gelo_has_permission('withdrawals.cancel') && !$isCancelled && !$isDelivered && ($isOwner || $canViewAll);
-$canSeparate = gelo_has_permission('withdrawals.separate') && $isRequested;
-$canDeliver = gelo_has_permission('withdrawals.deliver') && $isSeparated;
-$canReturn = gelo_has_permission('withdrawals.return') && $isDelivered && $paymentCount === 0;
-$canPay = gelo_has_permission('withdrawals.pay') && $isDelivered && bccomp($remaining, '0.00', 2) === 1;
+$canCancel = gelo_has_permission('withdrawals.cancel') && !$isCancelled && !$isSaida && ($isOwner || $canViewAll);
+$canDeliver = gelo_has_permission('withdrawals.deliver') && $isRequested;
+$canReturn = gelo_has_permission('withdrawals.return') && $isSaida && $paymentCount === 0;
+$canPay = gelo_has_permission('withdrawals.pay') && $isSaida && bccomp($remaining, '0.00', 2) === 1;
 
-if ($isDelivered) {
-    $statusLabel = 'Entregue';
+if ($isSaida) {
+    $statusLabel = 'Saída';
     $statusBadge = 'badge-success badge-outline';
-} elseif ($isSeparated) {
-    $statusLabel = 'Separado';
-    $statusBadge = 'badge-info badge-outline';
 } elseif ($isCancelled) {
     $statusLabel = 'Cancelado';
     $statusBadge = 'badge-ghost';
@@ -242,23 +237,16 @@ if ($isDelivered) {
             <div class="flex flex-wrap items-center justify-end gap-2">
                 <a class="btn btn-ghost" href="<?= gelo_e(GELO_BASE_URL . '/withdrawals.php') ?>">Voltar</a>
                 <?php if ($canReturn): ?>
-                    <a class="btn btn-outline" href="<?= gelo_e(GELO_BASE_URL . '/withdrawal_return.php?id=' . (int) $id) ?>">Registrar devolução</a>
+					<a class="btn btn-outline" href="<?= gelo_e(GELO_BASE_URL . '/withdrawal_return.php?id=' . (int) $id) ?>">Registrar retorno</a>
                 <?php endif; ?>
                 <?php if ($canCancel): ?>
                     <label for="cancelModal" class="btn btn-outline btn-error">Cancelar</label>
-                <?php endif; ?>
-                <?php if ($canSeparate): ?>
-                    <form method="post" action="<?= gelo_e(GELO_BASE_URL . '/app/actions/withdrawal_separate.php') ?>">
-                        <input type="hidden" name="_csrf" value="<?= gelo_e(gelo_csrf_token()) ?>">
-                        <input type="hidden" name="id" value="<?= (int) $id ?>">
-                        <button class="btn btn-info" type="submit">Marcar separado</button>
-                    </form>
                 <?php endif; ?>
                 <?php if ($canDeliver): ?>
                     <form method="post" action="<?= gelo_e(GELO_BASE_URL . '/app/actions/withdrawal_deliver.php') ?>">
                         <input type="hidden" name="_csrf" value="<?= gelo_e(gelo_csrf_token()) ?>">
                         <input type="hidden" name="id" value="<?= (int) $id ?>">
-                        <button class="btn btn-success" type="submit">Marcar entregue</button>
+                        <button class="btn btn-success" type="submit">Marcar saída</button>
                     </form>
                 <?php endif; ?>
             </div>
@@ -313,7 +301,7 @@ if ($isDelivered) {
 	                                                <div class="text-sm font-medium text-right"><?= $orderedQty ?></div>
 	                                                <div class="text-xs opacity-70">Devolvida</div>
 	                                                <div class="text-sm font-medium text-right"><?= $retQty ?></div>
-	                                                <div class="text-xs opacity-70">Entregue</div>
+                                                    <div class="text-xs opacity-70">Saída</div>
 	                                                <div class="text-sm font-medium text-right"><?= $netQty ?></div>
 	                                            </div>
 	                                        </div>
@@ -329,7 +317,7 @@ if ($isDelivered) {
 	                                            <th class="text-right">Preço</th>
 	                                            <th class="text-right">Qtd</th>
 	                                            <th class="text-right">Devolvida</th>
-	                                            <th class="text-right">Entregue</th>
+                                                <th class="text-right">Saída</th>
 	                                            <th class="text-right">Subtotal</th>
 	                                        </tr>
 	                                    </thead>
@@ -490,11 +478,8 @@ if ($isDelivered) {
                                 <div class="text-xs opacity-70 space-y-1">
                                     <div>Cliente: <?= gelo_e((string) ($order['user_name'] ?? '')) ?> · <?= gelo_e(gelo_format_phone((string) ($order['user_phone'] ?? ''))) ?></div>
                                     <div>Criado em <?= gelo_e(date('d/m/Y H:i', strtotime((string) ($order['created_at'] ?? 'now')))) ?><?= !empty($order['created_by_name']) ? (' · ' . gelo_e((string) $order['created_by_name'])) : '' ?></div>
-                                    <?php if (!empty($order['separated_at'])): ?>
-                                        <div>Separado em <?= gelo_e(date('d/m/Y H:i', strtotime((string) $order['separated_at']))) ?><?= !empty($order['separated_by_name']) ? (' · ' . gelo_e((string) $order['separated_by_name'])) : '' ?></div>
-                                    <?php endif; ?>
                                     <?php if (!empty($order['delivered_at'])): ?>
-                                        <div>Entregue em <?= gelo_e(date('d/m/Y H:i', strtotime((string) $order['delivered_at']))) ?><?= !empty($order['delivered_by_name']) ? (' · ' . gelo_e((string) $order['delivered_by_name'])) : '' ?></div>
+										<div>Saída em <?= gelo_e(date('d/m/Y H:i', strtotime((string) $order['delivered_at']))) ?><?= !empty($order['delivered_by_name']) ? (' · ' . gelo_e((string) $order['delivered_by_name'])) : '' ?></div>
                                     <?php endif; ?>
                                     <?php if (!empty($order['cancelled_at'])): ?>
                                         <div>Cancelado em <?= gelo_e(date('d/m/Y H:i', strtotime((string) $order['cancelled_at']))) ?><?= !empty($order['cancelled_by_name']) ? (' · ' . gelo_e((string) $order['cancelled_by_name'])) : '' ?></div>
@@ -509,7 +494,7 @@ if ($isDelivered) {
 	                        </div>
 	                    </div>
 	
-	                    <?php if ($isDelivered || $paymentCount > 0): ?>
+	                    <?php if ($isSaida || $paymentCount > 0): ?>
 		                        <div class="card bg-base-100 shadow-xl ring-1 ring-base-300/60">
 		                            <div class="card-body p-4 sm:p-8">
 		                                <div class="flex items-center justify-between gap-3">
@@ -621,8 +606,8 @@ if ($isDelivered) {
 	                                    </form>
 	                                <?php else: ?>
 	                                    <div class="mt-5 text-xs opacity-70">
-	                                        <?php if (!$isDelivered): ?>
-	                                            Pagamentos disponíveis somente após a entrega.
+	                                        <?php if (!$isSaida): ?>
+	                                            Pagamentos disponíveis somente após a saída.
 	                                        <?php elseif (bccomp($remaining, '0.00', 2) <= 0): ?>
 	                                            Pedido já está quitado.
 	                                        <?php else: ?>

@@ -11,7 +11,7 @@ if ($id <= 0) {
     gelo_redirect(GELO_BASE_URL . '/withdrawals.php');
 }
 
-$pageTitle = 'Devolução · Retirada #' . $id;
+$pageTitle = 'Retorno · Retirada #' . $id;
 $activePage = 'withdrawals';
 
 $error = gelo_flash_get('error');
@@ -57,8 +57,8 @@ try {
         gelo_redirect(GELO_BASE_URL . '/withdrawals.php');
     }
 
-    if ((string) ($order['status'] ?? '') !== 'delivered') {
-        gelo_flash_set('error', 'Devolução só é permitida após o pedido ser entregue.');
+    if ((string) ($order['status'] ?? '') !== 'saida') {
+        gelo_flash_set('error', 'Retorno só é permitido após o pedido ter saída.');
         gelo_redirect(GELO_BASE_URL . '/withdrawal.php?id=' . $id);
     }
 
@@ -67,7 +67,7 @@ try {
     $row = $stmt->fetch();
     $paymentCount = is_array($row) ? (int) ($row['c'] ?? 0) : 0;
     if ($paymentCount > 0) {
-        gelo_flash_set('error', 'Não é possível registrar devolução após iniciar pagamentos.');
+        gelo_flash_set('error', 'Não é possível registrar retorno após iniciar pagamentos.');
         gelo_redirect(GELO_BASE_URL . '/withdrawal.php?id=' . $id);
     }
 
@@ -127,7 +127,7 @@ if (bccomp($netTotal, '0.00', 2) < 0) {
     <main class="mx-auto max-w-6xl p-6">
         <div class="flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
             <div>
-                <h1 class="text-2xl font-semibold tracking-tight">Registrar devolução</h1>
+                <h1 class="text-2xl font-semibold tracking-tight">Registrar retorno</h1>
                 <p class="text-sm opacity-70 mt-1">Pedido #<?= (int) $id ?> · <?= gelo_e((string) ($order['user_name'] ?? '')) ?></p>
             </div>
             <a class="btn btn-ghost" href="<?= gelo_e(GELO_BASE_URL . '/withdrawal.php?id=' . (int) $id) ?>">Voltar</a>
@@ -216,7 +216,7 @@ if (bccomp($netTotal, '0.00', 2) < 0) {
                 <div class="space-y-6">
                     <div class="card bg-base-100 shadow-xl ring-1 ring-base-300/60">
                         <div class="card-body p-6 sm:p-8">
-                            <h2 class="text-lg font-semibold">Resumo da devolução</h2>
+                            <h2 class="text-lg font-semibold">Resumo do retorno</h2>
                             <div class="mt-4 space-y-2 text-sm">
                                 <div class="flex items-center justify-between">
                                     <span class="opacity-70">Itens devolvidos</span>
@@ -234,11 +234,11 @@ if (bccomp($netTotal, '0.00', 2) < 0) {
                                 <div>Valor do pedido: <span class="font-medium"><?= gelo_e(gelo_format_money($orderTotal)) ?></span></div>
                                 <div>Saldo atual: <span class="font-medium"><?= gelo_e(gelo_format_money($netTotal)) ?></span></div>
                                 <div class="mt-2">
-                                    Devolução só é permitida antes de iniciar pagamentos.
+                                    Retorno só é permitido antes de iniciar pagamentos.
                                 </div>
                             </div>
 
-                            <button class="btn btn-primary w-full mt-6" type="submit">Registrar devolução</button>
+                            <button class="btn btn-primary w-full mt-6" type="submit">Registrar retorno</button>
                             <a class="btn btn-ghost w-full" href="<?= gelo_e(GELO_BASE_URL . '/withdrawal.php?id=' . (int) $id) ?>">Cancelar</a>
                         </div>
                     </div>

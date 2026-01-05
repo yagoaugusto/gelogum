@@ -10,8 +10,7 @@ $canWithdrawals = gelo_has_permission('withdrawals.access');
 
 $myWithdrawalCounts = [
     'requested' => 0,
-    'separated' => 0,
-    'delivered' => 0,
+    'saida' => 0,
     'cancelled' => 0,
 ];
 
@@ -20,6 +19,7 @@ $openOrders = 0;
 $deliveredLast7 = 0;
 $cancelledLast30 = 0;
 $recentOrders = [];
+$recentPayments = [];
 $chartDays = [];
 
 if ($canWithdrawals && $userId > 0) {
@@ -41,7 +41,7 @@ if ($canWithdrawals && $userId > 0) {
             $myWithdrawalCounts[$status] = (int) ($row['c'] ?? 0);
         }
 
-        // Financeiro: valor em aberto (somente pedidos entregues)
+        // Financeiro: valor em aberto (somente pedidos com saída)
         $stmt = $pdo->prepare("
             SELECT
                 COALESCE(SUM(GREATEST(GREATEST(o.total_amount - COALESCE(ret.returned_amount, 0), 0) - COALESCE(pay.paid_amount, 0), 0)), 0) AS open_amount,
@@ -58,7 +58,7 @@ if ($canWithdrawals && $userId > 0) {
                 FROM withdrawal_payments
                 GROUP BY order_id
             ) pay ON pay.order_id = o.id
-            WHERE o.user_id = :id AND o.status = 'delivered'
+            WHERE o.user_id = :id AND o.status = 'saida'
         ");
         $stmt->execute(['id' => $userId]);
         $row = $stmt->fetch();
@@ -68,7 +68,7 @@ if ($canWithdrawals && $userId > 0) {
         }
 
         // Contadores por período
-        $stmt = $pdo->prepare("SELECT COUNT(*) AS c FROM withdrawal_orders WHERE user_id = :id AND status = 'delivered' AND delivered_at >= DATE_SUB(CURDATE(), INTERVAL 6 DAY)");
+        $stmt = $pdo->prepare("SELECT COUNT(*) AS c FROM withdrawal_orders WHERE user_id = :id AND status = 'saida' AND delivered_at >= DATE_SUB(CURDATE(), INTERVAL 6 DAY)");
         $stmt->execute(['id' => $userId]);
         $row = $stmt->fetch();
         $deliveredLast7 = is_array($row) ? (int) ($row['c'] ?? 0) : 0;
@@ -107,7 +107,24 @@ if ($canWithdrawals && $userId > 0) {
         $stmt->execute(['id' => $userId]);
         $recentOrders = $stmt->fetchAll();
 
-        // Gráfico (R$): valor entregue líquido (total - devoluções) por dia (últimos 7 dias)
+        // Pagamentos recentes (pagamento por usuário + extrato)
+        $stmt = $pdo->prepare('
+            SELECT
+                up.id,
+                up.amount,
+                up.method,
+                up.paid_at,
+                up.open_before,
+                up.open_after
+            FROM user_payments up
+            WHERE up.user_id = :id
+            ORDER BY up.paid_at DESC, up.id DESC
+            LIMIT 6
+        ');
+        $stmt->execute(['id' => $userId]);
+        $recentPayments = $stmt->fetchAll();
+
+        // Gráfico (R$): valor de saída líquido (total - devoluções) por dia (últimos 7 dias)
         $chartDays = [];
         for ($i = 6; $i >= 0; $i--) {
             $date = date('Y-m-d', strtotime('-' . $i . ' days'));
@@ -129,7 +146,7 @@ if ($canWithdrawals && $userId > 0) {
                 GROUP BY r.order_id
             ) ret ON ret.order_id = o.id
             WHERE o.user_id = :id
-              AND o.status = 'delivered'
+                            AND o.status = 'saida'
               AND o.delivered_at >= DATE_SUB(CURDATE(), INTERVAL 6 DAY)
             GROUP BY DATE(o.delivered_at)
         ");
@@ -173,13 +190,12 @@ $activePage = 'dashboard';
             <div class="lg:col-span-2">
                 <?php if ($canWithdrawals): ?>
                     <?php
-                        $inProgress = (int) $myWithdrawalCounts['requested'] + (int) $myWithdrawalCounts['separated'];
+                        $inProgress = (int) $myWithdrawalCounts['requested'];
                         $isOpen = bccomp((string) $openAmount, '0.00', 2) === 1;
 
                         $statusLabelMap = [
                             'requested' => ['Solicitado', 'badge-warning badge-outline'],
-                            'separated' => ['Separado', 'badge-info badge-outline'],
-                            'delivered' => ['Entregue', 'badge-success badge-outline'],
+                            'saida' => ['Saída', 'badge-success badge-outline'],
                             'cancelled' => ['Cancelado', 'badge-ghost'],
                         ];
 
@@ -254,7 +270,7 @@ $activePage = 'dashboard';
                                             </svg>
                                         </div>
                                     </div>
-                                    <div class="mt-2 text-xs opacity-70">Solicitados + separados</div>
+                                    <div class="mt-2 text-xs opacity-70">Solicitados</div>
                                 </div>
 
                                 <div class="rounded-box border border-base-200 p-3">
@@ -269,14 +285,14 @@ $activePage = 'dashboard';
                                             </svg>
                                         </div>
                                     </div>
-                                    <div class="mt-2 text-xs opacity-70">Entregues (<?= (int) $cancelledLast30 ?> cancelados em 30 dias)</div>
+                                    <div class="mt-2 text-xs opacity-70">Saídas (<?= (int) $cancelledLast30 ?> cancelados em 30 dias)</div>
                                 </div>
                             </div>
 
                             <div class="mt-5">
                                 <div class="flex flex-col gap-2 sm:flex-row sm:items-end sm:justify-between">
                                     <div class="min-w-0">
-                                        <h3 class="font-semibold">R$ entregues (últimos 7 dias)</h3>
+                                        <h3 class="font-semibold">R$ saídas (últimos 7 dias)</h3>
                                         <span class="text-xs opacity-70">Total líquido (total − devoluções)</span>
                                     </div>
                                     <div class="flex flex-wrap gap-2 sm:justify-end">
@@ -317,9 +333,9 @@ $activePage = 'dashboard';
 	                                        </div>
 
 	                                        <canvas
-	                                            id="deliveries7dChart"
+                                                id="deliveries7dChart"
 	                                            class="w-full h-full hidden"
-	                                            aria-label="Gráfico de valores entregues nos últimos 7 dias"
+                                                aria-label="Gráfico de valores de saída nos últimos 7 dias"
 	                                            role="img"
 	                                        ></canvas>
 	                                    </div>
@@ -358,17 +374,9 @@ $activePage = 'dashboard';
                                     <span>Solicitados</span>
                                     <span class="badge badge-warning badge-outline"><?= (int) $myWithdrawalCounts['requested'] ?></span>
                                 </a>
-                                <a class="btn btn-outline justify-between" href="<?= gelo_e(GELO_BASE_URL . '/withdrawals.php?status=separated&mine=1') ?>">
-                                    <span>Separados</span>
-                                    <span class="badge badge-info badge-outline"><?= (int) $myWithdrawalCounts['separated'] ?></span>
-                                </a>
-                                <a class="btn btn-outline justify-between" href="<?= gelo_e(GELO_BASE_URL . '/withdrawals.php?status=delivered&mine=1') ?>">
-                                    <span>Entregues</span>
-                                    <span class="badge badge-success badge-outline"><?= (int) $myWithdrawalCounts['delivered'] ?></span>
-                                </a>
-                                <a class="btn btn-outline justify-between" href="<?= gelo_e(GELO_BASE_URL . '/withdrawals.php?status=cancelled&mine=1') ?>">
-                                    <span>Cancelados</span>
-                                    <span class="badge badge-ghost"><?= (int) $myWithdrawalCounts['cancelled'] ?></span>
+                                <a class="btn btn-outline justify-between" href="<?= gelo_e(GELO_BASE_URL . '/withdrawals.php?status=saida&mine=1') ?>">
+                                    <span>Saídas</span>
+                                    <span class="badge badge-success badge-outline"><?= (int) $myWithdrawalCounts['saida'] ?></span>
                                 </a>
                             </div>
                         <?php endif; ?>
@@ -406,12 +414,12 @@ $activePage = 'dashboard';
                                     $net = max(0.0, round(((float) $rTotal) - ((float) $rReturned), 2));
                                     $balance = max(0.0, round($net - ((float) $rPaid), 2));
 
-                                    $payLabel = 'Aguardando entrega';
+                                    $payLabel = 'Aguardando saída';
                                     $payBadge = 'badge-ghost';
                                     if ($rst === 'cancelled') {
                                         $payLabel = 'Não aplicável';
                                         $payBadge = 'badge-ghost';
-                                    } elseif ($rst === 'delivered') {
+                                    } elseif ($rst === 'saida') {
                                         if ($net <= 0.0) {
                                             $payLabel = 'Sem saldo';
                                             $payBadge = 'badge-ghost';
@@ -449,6 +457,47 @@ $activePage = 'dashboard';
                                     </div>
                                 </a>
                                 <?php if ($idx < count($recentOrders) - 1): ?>
+                                    <div class="divider my-0"></div>
+                                <?php endif; ?>
+                            <?php endforeach; ?>
+                        <?php endif; ?>
+                    </div>
+                </div>
+            </div>
+
+            <div class="card bg-base-100 shadow-xl ring-1 ring-base-300/60 mt-6">
+                <div class="card-body">
+                    <div class="flex items-center justify-between gap-3">
+                        <h2 class="text-lg font-semibold">Pagamentos recentes</h2>
+                        <a class="btn btn-ghost btn-sm" href="<?= gelo_e(GELO_BASE_URL . '/payment_history.php') ?>">Ver histórico</a>
+                    </div>
+                    <p class="text-sm opacity-70 -mt-1">Seus últimos pagamentos, com acesso ao extrato.</p>
+
+                    <div class="mt-4 rounded-box border border-base-200 bg-base-100">
+                        <?php if (empty($recentPayments)): ?>
+                            <div class="px-4 py-8 text-center opacity-70">Nenhum pagamento registrado.</div>
+                        <?php else: ?>
+                            <?php foreach ($recentPayments as $idx => $p): ?>
+                                <?php
+                                    $pid = (int) ($p['id'] ?? 0);
+                                    $paidAt = (string) ($p['paid_at'] ?? '');
+                                    $paidLabel = $paidAt !== '' ? date('d/m/Y H:i', strtotime($paidAt)) : '—';
+                                    $amount = (string) ($p['amount'] ?? '0.00');
+                                    $methodKey = (string) ($p['method'] ?? '');
+                                    $methods = gelo_withdrawal_payment_methods();
+                                    $methodLabel = $methods[$methodKey] ?? $methodKey;
+                                ?>
+
+                                <div class="flex flex-col gap-3 px-4 py-4 sm:flex-row sm:items-center sm:justify-between">
+                                    <div class="min-w-0">
+                                        <div class="font-medium">Pagamento #<?= (int) $pid ?> · <?= gelo_e(gelo_format_money($amount)) ?></div>
+                                        <div class="text-xs opacity-70"><?= gelo_e($paidLabel) ?> · <span class="badge badge-outline align-middle"><?= gelo_e($methodLabel) ?></span></div>
+                                    </div>
+                                    <div class="flex justify-end">
+                                        <a class="btn btn-sm btn-outline" href="<?= gelo_e(GELO_BASE_URL . '/payment_receipt.php?id=' . (int) $pid) ?>">Extrato</a>
+                                    </div>
+                                </div>
+                                <?php if ($idx < count($recentPayments) - 1): ?>
                                     <div class="divider my-0"></div>
                                 <?php endif; ?>
                             <?php endforeach; ?>

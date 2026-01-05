@@ -4,6 +4,7 @@ declare(strict_types=1);
 require_once __DIR__ . '/../bootstrap.php';
 gelo_require_permissions(['withdrawals.access', 'withdrawals.pay']);
 require_once __DIR__ . '/../../../API/config/database.php';
+require_once __DIR__ . '/../lib/whatsapp_ultramsg.php';
 
 if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
     gelo_redirect(GELO_BASE_URL . '/withdrawals.php');
@@ -56,8 +57,8 @@ try {
         gelo_redirect(GELO_BASE_URL . '/withdrawals.php');
     }
 
-    if ((string) ($order['status'] ?? '') !== 'delivered') {
-        gelo_flash_set('error', 'Pagamento só pode ser lançado após o pedido ser entregue.');
+    if ((string) ($order['status'] ?? '') !== 'saida') {
+        gelo_flash_set('error', 'Pagamento só pode ser lançado após o pedido ter saída.');
         gelo_redirect(GELO_BASE_URL . '/withdrawal.php?id=' . $orderId);
     }
 
@@ -108,6 +109,8 @@ try {
 	        'note' => $note !== '' ? $note : null,
 	    ]);
 
+        $paymentId = (int) $pdo->lastInsertId();
+
     $newPaid = bcadd($paidTotal, $amount, 2);
     $newRemaining = bcsub($netTotal, $newPaid, 2);
     if (bccomp($newRemaining, '0.00', 2) <= 0) {
@@ -115,6 +118,10 @@ try {
     }
 
     $pdo->commit();
+
+    if (isset($paymentId) && $paymentId > 0) {
+        gelo_whatsapp_notify_order_payment($orderId, $paymentId);
+    }
 
     gelo_flash_set('success', 'Pagamento registrado.');
     gelo_redirect(GELO_BASE_URL . '/withdrawal.php?id=' . $orderId);

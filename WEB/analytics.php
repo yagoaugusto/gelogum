@@ -93,7 +93,7 @@ $summary = [
     'avg_order_amount' => '0.00',
     'cancelled_count' => 0,
     'with_return_count' => 0,
-    'delivered_count' => 0,
+    'saida_count' => 0,
     'in_progress_count' => 0,
     'total_payable' => '0.00',
     'total_paid' => '0.00',
@@ -107,7 +107,7 @@ while ($cursor < $rangeEndExclusive) {
     $days[$key] = [
         'label' => $cursor->format('d/m'),
         'orders' => 0,
-        'delivered_value' => '0.00',
+        'saida_value' => '0.00',
         'cancelled' => 0,
         'paid' => '0.00',
     ];
@@ -153,11 +153,11 @@ try {
             AVG(CASE WHEN o.status <> \'cancelled\' THEN o.total_amount ELSE NULL END) AS avg_order_amount,
             SUM(CASE WHEN o.status = \'cancelled\' THEN 1 ELSE 0 END) AS cancelled_count,
             SUM(CASE WHEN COALESCE(ret.returned_amount, 0) > 0 THEN 1 ELSE 0 END) AS with_return_count,
-            SUM(CASE WHEN o.status = \'delivered\' THEN 1 ELSE 0 END) AS delivered_count,
-            SUM(CASE WHEN o.status IN (\'requested\', \'separated\') THEN 1 ELSE 0 END) AS in_progress_count,
-            SUM(CASE WHEN o.status = \'delivered\' THEN GREATEST(o.total_amount - COALESCE(ret.returned_amount, 0), 0) ELSE 0 END) AS total_payable,
-            SUM(CASE WHEN o.status = \'delivered\' THEN COALESCE(pay.paid_amount, 0) ELSE 0 END) AS total_paid,
-            SUM(CASE WHEN o.status = \'delivered\' THEN GREATEST(GREATEST(o.total_amount - COALESCE(ret.returned_amount, 0), 0) - COALESCE(pay.paid_amount, 0), 0) ELSE 0 END) AS total_open
+            SUM(CASE WHEN o.status = \'saida\' THEN 1 ELSE 0 END) AS saida_count,
+            SUM(CASE WHEN o.status = \'requested\' THEN 1 ELSE 0 END) AS in_progress_count,
+            SUM(CASE WHEN o.status = \'saida\' THEN GREATEST(o.total_amount - COALESCE(ret.returned_amount, 0), 0) ELSE 0 END) AS total_payable,
+            SUM(CASE WHEN o.status = \'saida\' THEN COALESCE(pay.paid_amount, 0) ELSE 0 END) AS total_paid,
+            SUM(CASE WHEN o.status = \'saida\' THEN GREATEST(GREATEST(o.total_amount - COALESCE(ret.returned_amount, 0), 0) - COALESCE(pay.paid_amount, 0), 0) ELSE 0 END) AS total_open
         FROM withdrawal_orders o
         ' . $returnsJoin . '
         ' . $paymentsJoin . '
@@ -170,7 +170,7 @@ try {
         $summary['avg_order_amount'] = (string) ($row['avg_order_amount'] ?? '0.00');
         $summary['cancelled_count'] = (int) ($row['cancelled_count'] ?? 0);
         $summary['with_return_count'] = (int) ($row['with_return_count'] ?? 0);
-        $summary['delivered_count'] = (int) ($row['delivered_count'] ?? 0);
+        $summary['saida_count'] = (int) ($row['saida_count'] ?? 0);
         $summary['in_progress_count'] = (int) ($row['in_progress_count'] ?? 0);
         $summary['total_payable'] = (string) ($row['total_payable'] ?? '0.00');
         $summary['total_paid'] = (string) ($row['total_paid'] ?? '0.00');
@@ -182,7 +182,7 @@ try {
             DATE(o.created_at) AS day,
             COUNT(*) AS orders_count,
             SUM(CASE WHEN o.status = \'cancelled\' THEN 1 ELSE 0 END) AS cancelled_count,
-            SUM(CASE WHEN o.status = \'delivered\' THEN GREATEST(o.total_amount - COALESCE(ret.returned_amount, 0), 0) ELSE 0 END) AS delivered_value
+            SUM(CASE WHEN o.status = \'saida\' THEN GREATEST(o.total_amount - COALESCE(ret.returned_amount, 0), 0) ELSE 0 END) AS saida_value
         FROM withdrawal_orders o
         ' . $returnsJoin . '
         WHERE ' . $where . '
@@ -197,7 +197,7 @@ try {
         }
         $days[$day]['orders'] = (int) ($r['orders_count'] ?? 0);
         $days[$day]['cancelled'] = (int) ($r['cancelled_count'] ?? 0);
-        $days[$day]['delivered_value'] = (string) ($r['delivered_value'] ?? '0.00');
+        $days[$day]['saida_value'] = (string) ($r['saida_value'] ?? '0.00');
     }
 
     $payWhere = 'p.paid_at >= :start AND p.paid_at < :end';
@@ -260,7 +260,7 @@ try {
             INNER JOIN withdrawal_return_items ri ON ri.return_id = r.id
             GROUP BY r.order_id, ri.product_id
         ) rrp ON rrp.order_id = o.id AND rrp.product_id = oi.product_id
-        WHERE o.status = \'delivered\' AND ' . $where . '
+        WHERE o.status = \'saida\' AND ' . $where . '
         GROUP BY oi.product_id, oi.product_title
         ORDER BY net_total DESC, net_qty DESC
         LIMIT 50
@@ -283,7 +283,7 @@ try {
         INNER JOIN users u ON u.id = o.user_id
         ' . $returnsJoin . '
         ' . $paymentsJoin . '
-        WHERE o.status = \'delivered\' AND ' . $where . '
+        WHERE o.status = \'saida\' AND ' . $where . '
         GROUP BY u.id, u.name, u.phone
         ORDER BY payable_total DESC, orders_count DESC
         LIMIT 200
@@ -299,24 +299,24 @@ $paid = (float) $summary['total_paid'];
 $paidPct = $payable > 0 ? max(0.0, min(100.0, ($paid / $payable) * 100.0)) : 0.0;
 
 $maxOrders = 0;
-$maxDeliveredValue = 0.0;
+$maxSaidaValue = 0.0;
 $maxPaidValue = 0.0;
 foreach ($days as $it) {
     $maxOrders = max($maxOrders, (int) ($it['orders'] ?? 0));
-    $maxDeliveredValue = max($maxDeliveredValue, (float) ($it['delivered_value'] ?? 0));
+    $maxSaidaValue = max($maxSaidaValue, (float) ($it['saida_value'] ?? 0));
     $maxPaidValue = max($maxPaidValue, (float) ($it['paid'] ?? 0));
 }
-$maxValue = max($maxDeliveredValue, $maxPaidValue);
+$maxValue = max($maxSaidaValue, $maxPaidValue);
 
 // Gráficos (Chart.js)
 $chartLabels = [];
 $chartOrders = [];
-$chartDelivered = [];
+$chartSaida = [];
 $chartPaid = [];
 foreach ($days as $it) {
     $chartLabels[] = (string) ($it['label'] ?? '');
     $chartOrders[] = (int) ($it['orders'] ?? 0);
-    $chartDelivered[] = (float) ($it['delivered_value'] ?? 0);
+    $chartSaida[] = (float) ($it['saida_value'] ?? 0);
     $chartPaid[] = (float) ($it['paid'] ?? 0);
 }
 
@@ -422,8 +422,8 @@ $filteredSalesByUser = $salesByUser;
                     <div class="rounded-box bg-base-100 shadow-sm ring-1 ring-base-300/60 p-4">
                         <div class="flex items-start justify-between gap-3">
                             <div class="min-w-0">
-                                <div class="text-xs uppercase tracking-wide opacity-60">Entregues</div>
-                                <div class="mt-1 text-2xl font-semibold leading-none"><?= (int) $summary['delivered_count'] ?></div>
+                                <div class="text-xs uppercase tracking-wide opacity-60">Saídas</div>
+                                <div class="mt-1 text-2xl font-semibold leading-none"><?= (int) $summary['saida_count'] ?></div>
                                 <div class="mt-2 text-xs opacity-60">Pedidos concluídos.</div>
                             </div>
                             <div class="shrink-0">
@@ -473,7 +473,7 @@ $filteredSalesByUser = $salesByUser;
                     <div class="rounded-box bg-base-100 shadow-sm ring-1 ring-base-300/60 p-4">
                         <div class="flex items-start justify-between gap-3">
                             <div class="min-w-0">
-                                <div class="text-xs uppercase tracking-wide opacity-60">Com devolução</div>
+                                <div class="text-xs uppercase tracking-wide opacity-60">Com retorno</div>
                                 <div class="mt-1 text-2xl font-semibold leading-none"><?= (int) $summary['with_return_count'] ?></div>
                                 <div class="mt-2 text-xs opacity-60">Pedidos com itens devolvidos.</div>
                             </div>
@@ -510,7 +510,7 @@ $filteredSalesByUser = $salesByUser;
                 <div class="flex flex-col gap-1 sm:flex-row sm:items-end sm:justify-between">
                     <div>
                         <div class="text-sm font-semibold">Financeiro</div>
-                        <div class="text-xs opacity-70 mt-1">Base: pedidos entregues (líquido).</div>
+                        <div class="text-xs opacity-70 mt-1">Base: pedidos com saída (líquido).</div>
                     </div>
                     <span class="badge badge-outline badge-sm"><?= (int) round($paidPct) ?>%</span>
                 </div>
@@ -521,7 +521,7 @@ $filteredSalesByUser = $salesByUser;
                             <div class="min-w-0">
                                 <div class="text-xs uppercase tracking-wide opacity-60">A pagar</div>
                                 <div class="mt-1 text-xl font-semibold leading-none"><?= gelo_e(gelo_format_money($summary['total_payable'])) ?></div>
-                                <div class="mt-2 text-xs opacity-60">Total líquido entregue.</div>
+                                <div class="mt-2 text-xs opacity-60">Total líquido de saída.</div>
                             </div>
                             <div class="shrink-0">
                                 <div class="bg-primary/15 text-primary rounded-2xl w-10 h-10 flex items-center justify-center ring-1 ring-primary/20">
@@ -613,7 +613,7 @@ $filteredSalesByUser = $salesByUser;
                     <div class="flex flex-col gap-2 sm:flex-row sm:items-end sm:justify-between">
                         <div>
                             <h2 class="text-lg font-semibold">Valores por dia</h2>
-                            <p class="text-sm opacity-70 mt-1">Entregue líquido (base: pedidos entregues) vs. recebido (base: pagamentos).</p>
+                            <p class="text-sm opacity-70 mt-1">Saída líquida (base: pedidos com saída) vs. recebido (base: pagamentos).</p>
                         </div>
                         <div class="text-xs opacity-70 sm:text-right">
                             <div>máx.: <?= gelo_e(gelo_format_money($maxValue)) ?></div>
@@ -622,14 +622,14 @@ $filteredSalesByUser = $salesByUser;
 
                     <div class="mt-4 rounded-box border border-base-200 bg-base-100 p-4 overflow-hidden">
                         <div class="flex flex-wrap items-center gap-2 text-xs opacity-80">
-                            <span class="badge badge-success badge-outline">Entregue</span>
+                            <span class="badge badge-success badge-outline">Saída</span>
                             <span class="badge badge-info badge-outline">Recebido</span>
                         </div>
 
                         <div class="mt-4 h-8 sm:h-10 lg:h-11">
                             <canvas id="valuesByDayChart" class="w-full h-full"></canvas>
                         </div>
-                        <div class="mt-3 text-xs opacity-70">Dica: o “Recebido” pode ocorrer em dias diferentes do “Entregue”.</div>
+                        <div class="mt-3 text-xs opacity-70">Dica: o “Recebido” pode ocorrer em dias diferentes da “Saída”.</div>
                     </div>
                 </div>
             </div>
@@ -642,7 +642,7 @@ $filteredSalesByUser = $salesByUser;
                         <h2 class="text-lg font-semibold">Vendas por produto</h2>
                         <span class="badge badge-outline"><?= count($salesByProduct) ?> itens</span>
                     </div>
-                    <p class="text-sm opacity-70 mt-1">Quantidade e valor líquido (total − devoluções) para pedidos entregues.</p>
+                    <p class="text-sm opacity-70 mt-1">Quantidade e valor líquido (total − devoluções) para pedidos com saída.</p>
 
                     <div class="mt-4 sm:hidden overflow-hidden rounded-box border border-base-200 bg-base-100 divide-y divide-base-200">
                         <?php if (empty($salesByProduct)): ?>
@@ -743,7 +743,7 @@ $filteredSalesByUser = $salesByUser;
                     </div>
 
                     <div class="mt-4 text-xs opacity-70">
-                        Observação: pedidos entregues geram saldo; pagamentos podem ocorrer em outro período.
+                        Observação: pedidos com saída geram saldo; pagamentos podem ocorrer em outro período.
                     </div>
                 </div>
             </div>
@@ -757,7 +757,7 @@ $filteredSalesByUser = $salesByUser;
                         <span class="badge badge-ghost">Visão própria</span>
                     <?php endif; ?>
                 </div>
-                <p class="text-sm opacity-70 mt-1">Pago, a pagar, em aberto, ticket médio e devoluções por cliente (pedidos entregues).</p>
+                <p class="text-sm opacity-70 mt-1">Pago, a pagar, em aberto, ticket médio e devoluções por cliente (pedidos com saída).</p>
 
                 <div class="mt-4 flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
                     <div class="grid gap-3 sm:grid-cols-2 w-full sm:max-w-3xl">
@@ -795,7 +795,7 @@ $filteredSalesByUser = $salesByUser;
                             <tr>
                                 <th>Usuário</th>
                                 <th class="text-right">Pedidos</th>
-                                <th class="text-right">Com devolução</th>
+                                <th class="text-right">Com retorno</th>
                                 <th class="text-right">Ticket médio</th>
                                 <th class="text-right">A pagar</th>
                                 <th class="text-right">Pago</th>
@@ -806,7 +806,7 @@ $filteredSalesByUser = $salesByUser;
                         <tbody id="usersTbody">
                             <?php if (empty($filteredSalesByUser)): ?>
                                 <tr id="usersEmptyRow">
-                                    <td colspan="8" class="py-8 text-center opacity-70">Sem pedidos entregues no período.</td>
+                                    <td colspan="8" class="py-8 text-center opacity-70">Sem pedidos com saída no período.</td>
                                 </tr>
                             <?php else: ?>
                                 <?php foreach ($filteredSalesByUser as $u): ?>
@@ -855,7 +855,7 @@ $filteredSalesByUser = $salesByUser;
         (function () {
             const labels = <?= json_encode($chartLabels, JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS | JSON_HEX_QUOT) ?>;
             const orders = <?= json_encode($chartOrders, JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS | JSON_HEX_QUOT) ?>;
-            const delivered = <?= json_encode($chartDelivered, JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS | JSON_HEX_QUOT) ?>;
+            const saida = <?= json_encode($chartSaida, JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS | JSON_HEX_QUOT) ?>;
             const paid = <?= json_encode($chartPaid, JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS | JSON_HEX_QUOT) ?>;
 
             function brl(v) {
@@ -925,8 +925,8 @@ $filteredSalesByUser = $salesByUser;
                         labels,
                         datasets: [
                             {
-                                label: 'Entregue (líquido)',
-                                data: delivered,
+                                label: 'Saída (líquido)',
+                                data: saida,
                                 borderWidth: 0,
                                 backgroundColor: 'rgba(0, 128, 0, 0.30)'
                             },

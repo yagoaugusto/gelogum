@@ -13,8 +13,8 @@ $error = gelo_flash_get('error');
 
 $q = isset($_GET['q']) ? trim((string) $_GET['q']) : '';
 $status = isset($_GET['status']) ? (string) $_GET['status'] : 'all';
-$status = in_array($status, ['all', 'requested', 'separated', 'delivered', 'cancelled'], true) ? $status : 'all';
-$showPaymentColumn = $status === 'delivered';
+$status = in_array($status, ['all', 'requested', 'saida', 'cancelled'], true) ? $status : 'all';
+$showPaymentColumn = $status === 'saida';
 
 $mine = isset($_GET['mine']) ? strtolower(trim((string) $_GET['mine'])) : '';
 $forceMine = in_array($mine, ['1', 'true', 'yes'], true);
@@ -151,8 +151,7 @@ try {
                     <div class="join">
                         <a class="btn btn-sm join-item <?= $status === 'all' ? 'btn-active' : '' ?>" href="<?= gelo_e(GELO_BASE_URL . '/withdrawals.php?q=' . urlencode($q) . '&status=all' . $mineQuery) ?>">Todos</a>
                         <a class="btn btn-sm join-item <?= $status === 'requested' ? 'btn-active' : '' ?>" href="<?= gelo_e(GELO_BASE_URL . '/withdrawals.php?q=' . urlencode($q) . '&status=requested' . $mineQuery) ?>">Solicitados</a>
-                        <a class="btn btn-sm join-item <?= $status === 'separated' ? 'btn-active' : '' ?>" href="<?= gelo_e(GELO_BASE_URL . '/withdrawals.php?q=' . urlencode($q) . '&status=separated' . $mineQuery) ?>">Separados</a>
-                        <a class="btn btn-sm join-item <?= $status === 'delivered' ? 'btn-active' : '' ?>" href="<?= gelo_e(GELO_BASE_URL . '/withdrawals.php?q=' . urlencode($q) . '&status=delivered' . $mineQuery) ?>">Entregues</a>
+                        <a class="btn btn-sm join-item <?= $status === 'saida' ? 'btn-active' : '' ?>" href="<?= gelo_e(GELO_BASE_URL . '/withdrawals.php?q=' . urlencode($q) . '&status=saida' . $mineQuery) ?>">Saídas</a>
                         <a class="btn btn-sm join-item <?= $status === 'cancelled' ? 'btn-active' : '' ?>" href="<?= gelo_e(GELO_BASE_URL . '/withdrawals.php?q=' . urlencode($q) . '&status=cancelled' . $mineQuery) ?>">Cancelados</a>
                     </div>
                 </form>
@@ -247,10 +246,8 @@ try {
                                             </td>
                                         <?php endif; ?>
                                         <td>
-                                            <?php if ($statusValue === 'delivered'): ?>
-                                                <span class="badge badge-success badge-outline">Entregue</span>
-                                            <?php elseif ($statusValue === 'separated'): ?>
-                                                <span class="badge badge-info badge-outline">Separado</span>
+                                            <?php if ($statusValue === 'saida'): ?>
+                                                <span class="badge badge-success badge-outline">Saída</span>
                                             <?php elseif ($statusValue === 'cancelled'): ?>
                                                 <span class="badge badge-ghost">Cancelado</span>
                                             <?php else: ?>

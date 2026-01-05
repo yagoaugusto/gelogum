@@ -26,8 +26,26 @@ $initialItemsJson = json_encode($initialItems, JSON_HEX_TAG | JSON_HEX_AMP | JSO
 $products = [];
 try {
     $pdo = gelo_pdo();
-    $stmt = $pdo->query('SELECT id, title, unit_price FROM products WHERE is_active = 1 ORDER BY title ASC');
-    $products = $stmt->fetchAll();
+    $sessionUser = gelo_current_user();
+    $currentUserId = is_array($sessionUser) ? (int) ($sessionUser['id'] ?? 0) : 0;
+    if ($currentUserId > 0) {
+        $stmt = $pdo->prepare('
+            SELECT
+                p.id,
+                p.title,
+                COALESCE(upp.unit_price, p.unit_price) AS unit_price
+            FROM products p
+            LEFT JOIN user_product_prices upp
+                ON upp.product_id = p.id AND upp.user_id = :user_id
+            WHERE p.is_active = 1
+            ORDER BY p.title ASC
+        ');
+        $stmt->execute(['user_id' => $currentUserId]);
+        $products = $stmt->fetchAll();
+    } else {
+        $stmt = $pdo->query('SELECT id, title, unit_price FROM products WHERE is_active = 1 ORDER BY title ASC');
+        $products = $stmt->fetchAll();
+    }
 } catch (Throwable $e) {
     $error = $error ?? 'Erro ao carregar produtos. Verifique o banco e as migrações.';
 }
@@ -147,7 +165,7 @@ try {
                 </div>
 
                 <div class="text-xs opacity-70">
-                    Ao criar o pedido, ele ficará como <span class="font-medium">Solicitado</span> → <span class="font-medium">Separado</span> → <span class="font-medium">Entregue</span>.
+                    Ao criar o pedido, ele ficará como <span class="font-medium">Solicitado</span> → <span class="font-medium">Saída</span>.
                 </div>
             </div>
         </form>

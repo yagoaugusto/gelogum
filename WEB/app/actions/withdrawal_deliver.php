@@ -42,26 +42,31 @@ try {
     }
 
     $status = (string) ($row['status'] ?? '');
-    if ($status === 'delivered') {
-        gelo_flash_set('success', 'Pedido já estava como entregue.');
+    if ($status === 'saida') {
+        gelo_flash_set('success', 'Pedido já estava como saída.');
         gelo_redirect(GELO_BASE_URL . '/withdrawal.php?id=' . $id);
     }
 
-    if ($status !== 'separated') {
-        gelo_flash_set('error', 'O pedido precisa estar como separado antes de ser entregue.');
+    if ($status === 'cancelled') {
+        gelo_flash_set('error', 'Pedido cancelado.');
         gelo_redirect(GELO_BASE_URL . '/withdrawal.php?id=' . $id);
     }
 
-    $pdo->prepare("UPDATE withdrawal_orders SET status = 'delivered', delivered_at = NOW(), delivered_by_user_id = :actor WHERE id = :id")
+    if ($status !== 'requested') {
+        gelo_flash_set('error', 'Status inválido para marcar saída.');
+        gelo_redirect(GELO_BASE_URL . '/withdrawal.php?id=' . $id);
+    }
+
+    $pdo->prepare("UPDATE withdrawal_orders SET status = 'saida', delivered_at = NOW(), delivered_by_user_id = :actor WHERE id = :id")
         ->execute(['actor' => $actorId, 'id' => $id]);
 
     // Disparo WPP (best-effort)
     try {
-        gelo_whatsapp_notify_order($id, $status !== '' ? $status : null, 'delivered');
+        gelo_whatsapp_notify_order($id, $status !== '' ? $status : null, 'saida');
     } catch (Throwable $ignored) {
         // ignore
     }
-    gelo_flash_set('success', 'Pedido marcado como entregue.');
+    gelo_flash_set('success', 'Pedido marcado como saída.');
     gelo_redirect(GELO_BASE_URL . '/withdrawal.php?id=' . $id);
 } catch (Throwable $e) {
     gelo_flash_set('error', 'Erro ao atualizar pedido. Tente novamente.');

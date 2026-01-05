@@ -101,6 +101,22 @@ try {
         $products[(int) $r['id']] = $r;
     }
 
+    // Preço efetivo por usuário (override). Se não existir, usa o preço genérico do produto.
+    $userPrices = [];
+    try {
+        $pricePlaceholders = implode(',', array_fill(0, count($merged), '?'));
+        $stmt = $pdo->prepare("SELECT product_id, unit_price FROM user_product_prices WHERE user_id = ? AND product_id IN ($pricePlaceholders)");
+        $stmt->execute(array_merge([$orderUserId], array_keys($merged)));
+        foreach ($stmt->fetchAll() as $r) {
+            $pid = (int) ($r['product_id'] ?? 0);
+            if ($pid > 0) {
+                $userPrices[$pid] = (string) ($r['unit_price'] ?? '0.00');
+            }
+        }
+    } catch (Throwable $ignored) {
+        $userPrices = [];
+    }
+
     foreach ($merged as $pid => $qty) {
         $row = $products[$pid] ?? null;
         if (!is_array($row)) {
@@ -117,7 +133,7 @@ try {
 
     foreach ($merged as $pid => $qty) {
         $row = $products[$pid];
-        $unitPrice = (string) $row['unit_price'];
+        $unitPrice = isset($userPrices[$pid]) ? (string) $userPrices[$pid] : (string) $row['unit_price'];
         $lineTotal = bcmul($unitPrice, (string) $qty, 2);
 
         $totalItems += $qty;

@@ -346,27 +346,22 @@ function gelo_permissions_catalog(): array
             [
                 'key' => 'withdrawals.cancel',
                 'label' => 'Cancelar pedido',
-                'description' => 'Permite cancelar pedidos antes de serem entregues.',
-            ],
-            [
-                'key' => 'withdrawals.separate',
-                'label' => 'Marcar separado',
-                'description' => 'Permite marcar pedidos como separados.',
+                'description' => 'Permite cancelar pedidos antes de terem saída.',
             ],
             [
                 'key' => 'withdrawals.deliver',
-                'label' => 'Marcar entregue',
-                'description' => 'Permite marcar pedidos como entregues.',
+                'label' => 'Marcar saída',
+                'description' => 'Permite marcar pedidos como saída.',
             ],
             [
                 'key' => 'withdrawals.return',
-                'label' => 'Registrar devolução',
-                'description' => 'Permite registrar devolução de itens após a entrega.',
+                'label' => 'Registrar retorno',
+                'description' => 'Permite registrar retorno de itens após a saída.',
             ],
             [
                 'key' => 'withdrawals.pay',
                 'label' => 'Registrar pagamento',
-                'description' => 'Permite registrar pagamentos de pedidos entregues.',
+                'description' => 'Permite registrar pagamentos de pedidos com saída.',
             ],
         ],
         'Cadastros' => [
@@ -374,6 +369,11 @@ function gelo_permissions_catalog(): array
                 'key' => 'products.access',
                 'label' => 'Produtos',
                 'description' => 'Permite acessar e gerenciar produtos.',
+            ],
+            [
+                'key' => 'products.user_prices',
+                'label' => 'Preços por usuário',
+                'description' => 'Permite definir preços de produtos específicos por usuário (override).',
             ],
             [
                 'key' => 'deposits.access',

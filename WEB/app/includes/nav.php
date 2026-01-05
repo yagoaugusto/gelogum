@@ -9,8 +9,10 @@ $displayName = is_array($user) ? (string) ($user['name'] ?? '') : '';
 $phone = is_array($user) ? (string) ($user['phone'] ?? '') : '';
 $role = is_array($user) ? (string) ($user['role'] ?? '') : '';
 $canWithdrawals = gelo_has_permission('withdrawals.access');
+$canPayments = $canWithdrawals && gelo_has_permission('withdrawals.view_all');
 $canAnalytics = gelo_has_permission('analytics.access');
 $canProducts = gelo_has_permission('products.access');
+$canUserProductPrices = gelo_has_permission('products.user_prices');
 $canDepots = gelo_has_permission('deposits.access');
 $canUsers = gelo_has_permission('users.access');
 $canGroups = $canUsers && gelo_has_permission('users.groups');
@@ -47,11 +49,17 @@ if (!function_exists('gelo_nav_link')) {
                         <?php if ($canWithdrawals): ?>
 			                    <li><?= gelo_nav_link(GELO_BASE_URL . '/withdrawals.php', 'Retiradas', $activePage === 'withdrawals') ?></li>
                         <?php endif; ?>
+                        <?php if ($canPayments): ?>
+                            <li><?= gelo_nav_link(GELO_BASE_URL . '/payments.php', 'Pagamentos', $activePage === 'payments') ?></li>
+                        <?php endif; ?>
                         <?php if ($canAnalytics): ?>
 		                    <li><?= gelo_nav_link(GELO_BASE_URL . '/analytics.php', 'Analítico', $activePage === 'analytics') ?></li>
                         <?php endif; ?>
                         <?php if ($canProducts): ?>
 			                    <li><?= gelo_nav_link(GELO_BASE_URL . '/products.php', 'Produtos', $activePage === 'products') ?></li>
+                        <?php endif; ?>
+                        <?php if ($canUserProductPrices): ?>
+                            <li><?= gelo_nav_link(GELO_BASE_URL . '/user_product_prices.php', 'Preços por usuário', $activePage === 'user_product_prices') ?></li>
                         <?php endif; ?>
                         <?php if ($canDepots): ?>
 		                    <li><?= gelo_nav_link(GELO_BASE_URL . '/depots.php', 'Depósitos', $activePage === 'depots') ?></li>
@@ -67,7 +75,9 @@ if (!function_exists('gelo_nav_link')) {
 		                <?php endif; ?>
 		            </ul>
         </div>
-        <a class="btn btn-ghost text-xl tracking-tight" href="<?= gelo_e(GELO_BASE_URL . '/dashboard.php') ?>">GELO</a>
+        <a class="btn btn-ghost px-2" href="<?= gelo_e(GELO_BASE_URL . '/dashboard.php') ?>" aria-label="GELO">
+            <img src="<?= gelo_e(GELO_BASE_URL . '/logo.png') ?>" alt="GELO" class="h-8 w-auto" />
+        </a>
     </div>
 
     <div class="navbar-center hidden lg:flex">
@@ -76,11 +86,17 @@ if (!function_exists('gelo_nav_link')) {
                     <?php if ($canWithdrawals): ?>
 			                <li><?= gelo_nav_link(GELO_BASE_URL . '/withdrawals.php', 'Retiradas', $activePage === 'withdrawals') ?></li>
                     <?php endif; ?>
+                    <?php if ($canPayments): ?>
+                        <li><?= gelo_nav_link(GELO_BASE_URL . '/payments.php', 'Pagamentos', $activePage === 'payments') ?></li>
+                    <?php endif; ?>
                     <?php if ($canAnalytics): ?>
 		                <li><?= gelo_nav_link(GELO_BASE_URL . '/analytics.php', 'Analítico', $activePage === 'analytics') ?></li>
                     <?php endif; ?>
                     <?php if ($canProducts): ?>
 			                <li><?= gelo_nav_link(GELO_BASE_URL . '/products.php', 'Produtos', $activePage === 'products') ?></li>
+                    <?php endif; ?>
+                    <?php if ($canUserProductPrices): ?>
+                        <li><?= gelo_nav_link(GELO_BASE_URL . '/user_product_prices.php', 'Preços por usuário', $activePage === 'user_product_prices') ?></li>
                     <?php endif; ?>
                     <?php if ($canDepots): ?>
 		                <li><?= gelo_nav_link(GELO_BASE_URL . '/depots.php', 'Depósitos', $activePage === 'depots') ?></li>

@@ -51,8 +51,8 @@ try {
     }
 
     $status = (string) ($order['status'] ?? '');
-    if ($status === 'delivered') {
-        gelo_flash_set('error', 'Não é possível cancelar um pedido entregue.');
+    if ($status === 'saida') {
+        gelo_flash_set('error', 'Não é possível cancelar um pedido com saída.');
         gelo_redirect(GELO_BASE_URL . '/withdrawal.php?id=' . $id);
     }
     if ($status === 'cancelled') {

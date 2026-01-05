@@ -151,10 +151,13 @@ function gelo_whatsapp_status_label(string $status): string
     switch ($status) {
         case 'requested':
             return 'Solicitado';
+        case 'saida':
+            return 'Saída';
+        // Compatibilidade com status antigos (antes da migração)
         case 'separated':
-            return 'Separado';
+            return 'Solicitado';
         case 'delivered':
-            return 'Entregue';
+            return 'Saída';
         case 'cancelled':
             return 'Cancelado';
         default:
@@ -369,6 +372,470 @@ function gelo_whatsapp_notify_order(int $orderId, ?string $oldStatus, string $ne
     }
 }
 
+function gelo_whatsapp_notify_order_return(int $orderId, int $returnId): void
+{
+    if ($orderId <= 0 || $returnId <= 0) {
+        return;
+    }
+
+    try {
+        $pdo = gelo_pdo();
+
+        $stmt = $pdo->prepare('
+            SELECT
+                o.id,
+                o.user_id,
+                o.status,
+                o.total_items,
+                o.total_amount,
+                o.comment,
+                u.name AS user_name,
+                u.phone AS user_phone
+            FROM withdrawal_orders o
+            INNER JOIN users u ON u.id = o.user_id
+            WHERE o.id = :id
+            LIMIT 1
+        ');
+        $stmt->execute(['id' => $orderId]);
+        $order = $stmt->fetch();
+        if (!is_array($order)) {
+            return;
+        }
+
+        $stmt = $pdo->prepare('SELECT id, reason, created_at FROM withdrawal_returns WHERE id = :rid AND order_id = :oid LIMIT 1');
+        $stmt->execute(['rid' => $returnId, 'oid' => $orderId]);
+        $ret = $stmt->fetch();
+        if (!is_array($ret)) {
+            return;
+        }
+
+        $itemsList = [];
+        $returnedQty = 0;
+        $returnedTotal = '0.00';
+        $itemsStmt = $pdo->prepare('
+            SELECT product_title, quantity, line_total
+            FROM withdrawal_return_items
+            WHERE return_id = :rid
+            ORDER BY id ASC
+        ');
+        $itemsStmt->execute(['rid' => $returnId]);
+        foreach ($itemsStmt->fetchAll() as $it) {
+            if (!is_array($it)) {
+                continue;
+            }
+            $title = trim((string) ($it['product_title'] ?? ''));
+            $qty = (int) ($it['quantity'] ?? 0);
+            $lt = (string) ($it['line_total'] ?? '0.00');
+            if ($title === '' || $qty <= 0) {
+                continue;
+            }
+            $returnedQty += $qty;
+            $returnedTotal = bcadd($returnedTotal, $lt, 2);
+            $itemsList[] = '- ' . $qty . 'x ' . $title;
+        }
+
+        $status = (string) ($order['status'] ?? '');
+        $statusLabel = $status !== '' ? gelo_whatsapp_status_label($status) : '';
+
+        $baseLines = [];
+        $baseLines[] = 'GELOGUM · Pedido #' . (int) ($order['id'] ?? $orderId);
+        $customerName = trim((string) ($order['user_name'] ?? ''));
+        if ($customerName !== '') {
+            $baseLines[] = 'Cliente: ' . $customerName;
+        }
+        if ($statusLabel !== '') {
+            $baseLines[] = 'Status: ' . $statusLabel;
+        }
+        $baseLines[] = 'Evento: Retorno registrado';
+        $baseLines[] = 'Retorno: ' . $returnedQty . ' item(ns)';
+        if (count($itemsList) > 0) {
+            $baseLines[] = 'Itens do retorno:';
+            foreach ($itemsList as $li) {
+                $baseLines[] = $li;
+            }
+        }
+        $baseLines[] = 'Total do retorno: ' . gelo_format_money($returnedTotal);
+
+        $reason = trim((string) ($ret['reason'] ?? ''));
+        if ($reason !== '') {
+            $baseLines[] = 'Motivo: ' . $reason;
+        }
+
+        $comment = trim((string) ($order['comment'] ?? ''));
+        if ($comment !== '') {
+            $baseLines[] = 'Obs.: ' . $comment;
+        }
+
+        $baseLines[] = 'Total do pedido: ' . gelo_format_money($order['total_amount'] ?? 0);
+
+        $userPhone = (string) ($order['user_phone'] ?? '');
+        $userTo = gelo_whatsapp_normalize_to($userPhone);
+
+        $targets = [];
+        if ($userTo !== null) {
+            $targets[$userTo] = [
+                'to' => $userTo,
+                'phone' => $userPhone,
+                'name' => (string) ($order['user_name'] ?? ''),
+                'target_user_id' => (int) ($order['user_id'] ?? 0),
+            ];
+        }
+
+        foreach (gelo_whatsapp_get_recipients($pdo, 'order') as $r) {
+            $targets[(string) $r['to']] = [
+                'to' => (string) $r['to'],
+                'phone' => (string) ($r['phone'] ?? ''),
+                'name' => (string) ($r['name'] ?? ''),
+                'target_user_id' => null,
+            ];
+        }
+
+        foreach ($targets as $t) {
+            $name = trim((string) ($t['name'] ?? ''));
+            if ($name === '') {
+                $name = 'tudo bem';
+            }
+
+            $lines = [];
+            $lines[] = 'Olá, ' . $name . '!';
+            $lines[] = '';
+            foreach ($baseLines as $bl) {
+                $lines[] = $bl;
+            }
+            $body = implode("\n", $lines);
+
+            $res = gelo_ultramsg_send_text((string) $t['to'], $body);
+            $pdoRes = '';
+            if (isset($res['response'])) {
+                $pdoRes = is_string($res['response']) ? $res['response'] : json_encode($res['response']);
+            }
+
+            gelo_whatsapp_log($pdo, [
+                'message_type' => 'order_return_created',
+                'order_id' => $orderId,
+                'target_user_id' => $t['target_user_id'],
+                'recipient_phone' => (string) ($t['phone'] ?? ''),
+                'body' => $body,
+                'api_response' => $pdoRes !== '' ? $pdoRes : null,
+                'is_success' => (bool) ($res['ok'] ?? false),
+            ]);
+        }
+    } catch (Throwable $e) {
+        // best-effort
+    }
+}
+
+function gelo_whatsapp_notify_order_payment(int $orderId, int $paymentId): void
+{
+    if ($orderId <= 0 || $paymentId <= 0) {
+        return;
+    }
+
+    try {
+        $pdo = gelo_pdo();
+
+        $stmt = $pdo->prepare('
+            SELECT
+                o.id,
+                o.user_id,
+                o.status,
+                o.total_amount,
+                o.comment,
+                u.name AS user_name,
+                u.phone AS user_phone
+            FROM withdrawal_orders o
+            INNER JOIN users u ON u.id = o.user_id
+            WHERE o.id = :id
+            LIMIT 1
+        ');
+        $stmt->execute(['id' => $orderId]);
+        $order = $stmt->fetch();
+        if (!is_array($order)) {
+            return;
+        }
+
+        $stmt = $pdo->prepare('SELECT id, amount, method, paid_at, note FROM withdrawal_payments WHERE id = :pid AND order_id = :oid LIMIT 1');
+        $stmt->execute(['pid' => $paymentId, 'oid' => $orderId]);
+        $pay = $stmt->fetch();
+        if (!is_array($pay)) {
+            return;
+        }
+
+        $returnsTotal = '0.00';
+        $stmt = $pdo->prepare('
+            SELECT COALESCE(SUM(ri.line_total), 0) AS returned_amount
+            FROM withdrawal_returns r
+            INNER JOIN withdrawal_return_items ri ON ri.return_id = r.id
+            WHERE r.order_id = :id
+        ');
+        $stmt->execute(['id' => $orderId]);
+        $ret = $stmt->fetch();
+        if (is_array($ret) && isset($ret['returned_amount'])) {
+            $returnsTotal = (string) $ret['returned_amount'];
+        }
+
+        $paidTotal = '0.00';
+        $stmt = $pdo->prepare('SELECT COALESCE(SUM(amount), 0) AS paid_amount FROM withdrawal_payments WHERE order_id = :id');
+        $stmt->execute(['id' => $orderId]);
+        $pt = $stmt->fetch();
+        if (is_array($pt) && isset($pt['paid_amount'])) {
+            $paidTotal = (string) $pt['paid_amount'];
+        }
+
+        $orderTotal = (string) ($order['total_amount'] ?? '0.00');
+        $netTotal = bcsub($orderTotal, $returnsTotal, 2);
+        if (bccomp($netTotal, '0.00', 2) < 0) {
+            $netTotal = '0.00';
+        }
+        $openTotal = bcsub($netTotal, $paidTotal, 2);
+        if (bccomp($openTotal, '0.00', 2) < 0) {
+            $openTotal = '0.00';
+        }
+
+        $status = (string) ($order['status'] ?? '');
+        $statusLabel = $status !== '' ? gelo_whatsapp_status_label($status) : '';
+
+        $paymentAmount = (string) ($pay['amount'] ?? '0.00');
+        $method = (string) ($pay['method'] ?? '');
+        $methodLabel = $method;
+        if (function_exists('gelo_withdrawal_payment_method_label')) {
+            $methodLabel = (string) gelo_withdrawal_payment_method_label($method !== '' ? $method : null);
+        }
+
+        $baseLines = [];
+        $baseLines[] = 'GELOGUM · Pedido #' . (int) ($order['id'] ?? $orderId);
+        $customerName = trim((string) ($order['user_name'] ?? ''));
+        if ($customerName !== '') {
+            $baseLines[] = 'Cliente: ' . $customerName;
+        }
+        if ($statusLabel !== '') {
+            $baseLines[] = 'Status: ' . $statusLabel;
+        }
+        $baseLines[] = 'Evento: Pagamento registrado';
+        $baseLines[] = 'Pagamento: ' . $methodLabel . ' · ' . gelo_format_money($paymentAmount);
+
+        $note = trim((string) ($pay['note'] ?? ''));
+        if ($note !== '') {
+            $baseLines[] = 'Obs.: ' . $note;
+        }
+
+        $baseLines[] = 'Total pago: ' . gelo_format_money($paidTotal);
+        $baseLines[] = 'Em aberto: ' . gelo_format_money($openTotal);
+
+        $comment = trim((string) ($order['comment'] ?? ''));
+        if ($comment !== '') {
+            $baseLines[] = 'Obs. pedido: ' . $comment;
+        }
+
+        $userPhone = (string) ($order['user_phone'] ?? '');
+        $userTo = gelo_whatsapp_normalize_to($userPhone);
+
+        $targets = [];
+        if ($userTo !== null) {
+            $targets[$userTo] = [
+                'to' => $userTo,
+                'phone' => $userPhone,
+                'name' => (string) ($order['user_name'] ?? ''),
+                'target_user_id' => (int) ($order['user_id'] ?? 0),
+            ];
+        }
+
+        foreach (gelo_whatsapp_get_recipients($pdo, 'order') as $r) {
+            $targets[(string) $r['to']] = [
+                'to' => (string) $r['to'],
+                'phone' => (string) ($r['phone'] ?? ''),
+                'name' => (string) ($r['name'] ?? ''),
+                'target_user_id' => null,
+            ];
+        }
+
+        foreach ($targets as $t) {
+            $name = trim((string) ($t['name'] ?? ''));
+            if ($name === '') {
+                $name = 'tudo bem';
+            }
+
+            $lines = [];
+            $lines[] = 'Olá, ' . $name . '!';
+            $lines[] = '';
+            foreach ($baseLines as $bl) {
+                $lines[] = $bl;
+            }
+            $body = implode("\n", $lines);
+
+            $res = gelo_ultramsg_send_text((string) $t['to'], $body);
+            $pdoRes = '';
+            if (isset($res['response'])) {
+                $pdoRes = is_string($res['response']) ? $res['response'] : json_encode($res['response']);
+            }
+
+            gelo_whatsapp_log($pdo, [
+                'message_type' => 'order_payment_created',
+                'order_id' => $orderId,
+                'target_user_id' => $t['target_user_id'],
+                'recipient_phone' => (string) ($t['phone'] ?? ''),
+                'body' => $body,
+                'api_response' => $pdoRes !== '' ? $pdoRes : null,
+                'is_success' => (bool) ($res['ok'] ?? false),
+            ]);
+        }
+    } catch (Throwable $e) {
+        // best-effort
+    }
+}
+
+function gelo_whatsapp_notify_user_payment(int $userPaymentId): void
+{
+    if ($userPaymentId <= 0) {
+        return;
+    }
+
+    try {
+        $pdo = gelo_pdo();
+
+        $stmt = $pdo->prepare('
+            SELECT
+                up.id,
+                up.user_id,
+                up.amount,
+                up.method,
+                up.paid_at,
+                up.note,
+                up.open_before,
+                up.open_after,
+                u.name AS user_name,
+                u.phone AS user_phone
+            FROM user_payments up
+            INNER JOIN users u ON u.id = up.user_id
+            WHERE up.id = :id
+            LIMIT 1
+        ');
+        $stmt->execute(['id' => $userPaymentId]);
+        $row = $stmt->fetch();
+        if (!is_array($row)) {
+            return;
+        }
+
+        $userPhone = (string) ($row['user_phone'] ?? '');
+        $userTo = gelo_whatsapp_normalize_to($userPhone);
+
+        $method = (string) ($row['method'] ?? '');
+        $methodLabel = $method;
+        if (function_exists('gelo_withdrawal_payment_method_label')) {
+            $methodLabel = (string) gelo_withdrawal_payment_method_label($method !== '' ? $method : null);
+        }
+
+        $allocStmt = $pdo->prepare('
+            SELECT order_id, amount
+            FROM user_payment_allocations
+            WHERE user_payment_id = :id
+            ORDER BY id ASC
+        ');
+        $allocStmt->execute(['id' => $userPaymentId]);
+        $allocs = $allocStmt->fetchAll();
+
+        $allocLines = [];
+        $shown = 0;
+        $maxShown = 15;
+        $totalAllocs = 0;
+        foreach ($allocs as $a) {
+            if (!is_array($a)) {
+                continue;
+            }
+            $totalAllocs++;
+            if ($shown >= $maxShown) {
+                continue;
+            }
+            $oid = (int) ($a['order_id'] ?? 0);
+            $amt = (string) ($a['amount'] ?? '0.00');
+            if ($oid <= 0) {
+                continue;
+            }
+            $allocLines[] = '- Pedido #' . $oid . ': ' . gelo_format_money($amt);
+            $shown++;
+        }
+        if ($totalAllocs > $maxShown) {
+            $allocLines[] = '... e +' . ($totalAllocs - $maxShown) . ' pedido(s).';
+        }
+
+        $baseLines = [];
+        $baseLines[] = 'GELOGUM · Pagamento registrado';
+
+        $customerName = trim((string) ($row['user_name'] ?? ''));
+        if ($customerName !== '') {
+            $baseLines[] = 'Cliente: ' . $customerName;
+        }
+
+        $baseLines[] = 'Valor: ' . gelo_format_money($row['amount'] ?? 0);
+        $baseLines[] = 'Método: ' . $methodLabel;
+        $baseLines[] = 'Em aberto: ' . gelo_format_money($row['open_before'] ?? 0) . ' → ' . gelo_format_money($row['open_after'] ?? 0);
+
+        if (count($allocLines) > 0) {
+            $baseLines[] = 'Compensação:';
+            foreach ($allocLines as $li) {
+                $baseLines[] = $li;
+            }
+        }
+
+        $note = trim((string) ($row['note'] ?? ''));
+        if ($note !== '') {
+            $baseLines[] = 'Obs.: ' . $note;
+        }
+
+        $targets = [];
+        if ($userTo !== null) {
+            $targets[$userTo] = [
+                'to' => $userTo,
+                'phone' => $userPhone,
+                'name' => (string) ($row['user_name'] ?? ''),
+                'target_user_id' => (int) ($row['user_id'] ?? 0),
+            ];
+        }
+
+        foreach (gelo_whatsapp_get_recipients($pdo, 'order') as $r) {
+            $targets[(string) $r['to']] = [
+                'to' => (string) $r['to'],
+                'phone' => (string) ($r['phone'] ?? ''),
+                'name' => (string) ($r['name'] ?? ''),
+                'target_user_id' => null,
+            ];
+        }
+
+        foreach ($targets as $t) {
+            $name = trim((string) ($t['name'] ?? ''));
+            if ($name === '') {
+                $name = 'tudo bem';
+            }
+
+            $lines = [];
+            $lines[] = 'Olá, ' . $name . '!';
+            $lines[] = '';
+            foreach ($baseLines as $bl) {
+                $lines[] = $bl;
+            }
+            $body = implode("\n", $lines);
+
+            $res = gelo_ultramsg_send_text((string) $t['to'], $body);
+            $pdoRes = '';
+            if (isset($res['response'])) {
+                $pdoRes = is_string($res['response']) ? $res['response'] : json_encode($res['response']);
+            }
+
+            gelo_whatsapp_log($pdo, [
+                'message_type' => 'user_payment_created',
+                'order_id' => null,
+                'target_user_id' => $t['target_user_id'],
+                'recipient_phone' => (string) ($t['phone'] ?? ''),
+                'body' => $body,
+                'api_response' => $pdoRes !== '' ? $pdoRes : null,
+                'is_success' => (bool) ($res['ok'] ?? false),
+            ]);
+        }
+    } catch (Throwable $e) {
+        // best-effort
+    }
+}
+
 function gelo_whatsapp_daily_summary_send(DateTimeImmutable $day): void
 {
     try {
@@ -409,12 +876,12 @@ function gelo_whatsapp_daily_summary_send(DateTimeImmutable $day): void
             ) pay ON pay.order_id = o.id
         ';
 
-        // Vendas do dia (entregue líquido no dia)
+        // Vendas do dia (saída líquida no dia)
         $stmt = $pdo->prepare('
             SELECT COALESCE(SUM(GREATEST(o.total_amount - COALESCE(ret.returned_amount, 0), 0)), 0) AS v
             FROM withdrawal_orders o
             ' . $returnsJoin . '
-            WHERE o.status = \'delivered\'
+            WHERE o.status = \'saida\'
               AND o.delivered_at >= :s AND o.delivered_at < :e
         ');
         $stmt->execute([
@@ -446,14 +913,14 @@ function gelo_whatsapp_daily_summary_send(DateTimeImmutable $day): void
             FROM withdrawal_orders o
             ' . $returnsJoin . '
             ' . $paymentsJoin . '
-            WHERE o.status = \'delivered\'
+            WHERE o.status = \'saida\'
         ');
         $openNow = (float) ((array) $stmt->fetch())['v'];
 
         $dateLabel = $start->format('d/m/Y');
 
         $baseBody = "GELOGUM · Resumo do dia ({$dateLabel})\n\n" .
-            "- Vendas do dia (entregues): " . gelo_format_money($sales) . "\n" .
+            "- Vendas do dia (saídas): " . gelo_format_money($sales) . "\n" .
             "- Pagamentos recebidos: " . gelo_format_money($paidToday) . "\n" .
             "- Em aberto agora: " . gelo_format_money($openNow) . "\n\n" .
             "Obrigado!";
