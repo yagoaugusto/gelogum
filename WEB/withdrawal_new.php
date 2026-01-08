@@ -8,6 +8,8 @@ require_once __DIR__ . '/../API/config/database.php';
 $pageTitle = 'Novo pedido · Retirada';
 $activePage = 'withdrawals';
 
+$canViewFinancial = gelo_has_permission('withdrawals.view_financial');
+
 $success = gelo_flash_get('success');
 $error = gelo_flash_get('error');
 $oldJson = gelo_flash_get('old_withdrawal');
@@ -94,9 +96,12 @@ try {
                                         <option
                                             value="<?= (int) $p['id'] ?>"
                                             data-title="<?= gelo_e((string) $p['title']) ?>"
-                                            data-price="<?= gelo_e((string) $p['unit_price']) ?>"
+                                            <?= $canViewFinancial ? ('data-price="' . gelo_e((string) $p['unit_price']) . '"') : '' ?>
                                         >
-                                            <?= gelo_e((string) $p['title']) ?> · <?= gelo_e(gelo_format_money($p['unit_price'] ?? 0)) ?>
+                                            <?= gelo_e((string) $p['title']) ?>
+                                            <?php if ($canViewFinancial): ?>
+                                                · <?= gelo_e(gelo_format_money($p['unit_price'] ?? 0)) ?>
+                                            <?php endif; ?>
                                         </option>
                                     <?php endforeach; ?>
                                 </select>
@@ -115,15 +120,17 @@ try {
                                 <thead>
                                     <tr>
                                         <th>Produto</th>
-                                        <th class="text-right">Preço</th>
                                         <th class="text-right">Qtd</th>
-                                        <th class="text-right">Subtotal</th>
+                                        <?php if ($canViewFinancial): ?>
+                                            <th class="text-right">Preço</th>
+                                            <th class="text-right">Subtotal</th>
+                                        <?php endif; ?>
                                         <th class="text-right">Remover</th>
                                     </tr>
                                 </thead>
                                 <tbody id="itemsTbody">
                                     <tr id="emptyRow">
-                                        <td colspan="5" class="py-8 text-center opacity-70">Nenhum item adicionado.</td>
+                                        <td colspan="<?= $canViewFinancial ? 5 : 3 ?>" class="py-8 text-center opacity-70">Nenhum item adicionado.</td>
                                     </tr>
                                 </tbody>
                             </table>
@@ -153,10 +160,12 @@ try {
                                 <span class="opacity-70">Total de itens</span>
                                 <span class="font-medium" id="totalItems">0</span>
                             </div>
-                            <div class="flex items-center justify-between">
-                                <span class="opacity-70">Valor total</span>
-                                <span class="font-semibold text-base" id="totalAmount">R$ 0,00</span>
-                            </div>
+                            <?php if ($canViewFinancial): ?>
+                                <div class="flex items-center justify-between">
+                                    <span class="opacity-70">Valor total</span>
+                                    <span class="font-semibold text-base" id="totalAmount">R$ 0,00</span>
+                                </div>
+                            <?php endif; ?>
                         </div>
                         <div class="divider my-4"></div>
                         <button class="btn btn-primary w-full" type="submit">Criar pedido</button>
@@ -172,6 +181,7 @@ try {
     </main>
 
     <script>
+            window.__GELO_CAN_VIEW_FINANCIAL = <?= $canViewFinancial ? 'true' : 'false' ?>;
       window.__GELO_INITIAL_ITEMS = <?= $initialItemsJson ?: '[]' ?>;
 
       const items = new Map();
@@ -220,11 +230,15 @@ try {
 
         items.forEach((item) => {
           totalItems += item.quantity;
-          totalCents += item.priceCents * item.quantity;
+                    if (window.__GELO_CAN_VIEW_FINANCIAL) {
+                        totalCents += item.priceCents * item.quantity;
+                    }
         });
 
         totalItemsEl.textContent = String(totalItems);
-        totalAmountEl.textContent = formatMoney(totalCents);
+                if (window.__GELO_CAN_VIEW_FINANCIAL && totalAmountEl) {
+                    totalAmountEl.textContent = formatMoney(totalCents);
+                }
 
         if (items.size === 0) {
           emptyRow.classList.remove('hidden');
@@ -236,19 +250,25 @@ try {
           const tr = document.createElement('tr');
           tr.dataset.item = String(item.id);
 
-          const subtotalCents = item.priceCents * item.quantity;
+                    const subtotalCents = item.priceCents * item.quantity;
 
-          tr.innerHTML = `
+                    const priceCols = window.__GELO_CAN_VIEW_FINANCIAL
+                        ? `
+                        <td class="text-right">${formatMoney(item.priceCents)}</td>
+                        <td class="text-right font-medium">${formatMoney(subtotalCents)}</td>
+                    `
+                        : '';
+
+                    tr.innerHTML = `
             <td>
               <div class="font-medium">${escapeHtml(item.title)}</div>
               <input type="hidden" name="product_id[]" value="${item.id}" />
               <input type="hidden" name="quantity[]" value="${item.quantity}" />
             </td>
-            <td class="text-right">${formatMoney(item.priceCents)}</td>
             <td class="text-right">
               <input class="input input-bordered input-sm w-20 text-right" type="number" min="1" value="${item.quantity}" data-role="qty" />
             </td>
-            <td class="text-right font-medium">${formatMoney(subtotalCents)}</td>
+                        ${priceCols}
             <td class="text-right">
               <button type="button" class="btn btn-ghost btn-sm" data-role="remove">Remover</button>
             </td>
@@ -281,8 +301,8 @@ try {
         if (!Number.isFinite(quantity) || quantity <= 0) return;
 
         const title = option?.dataset?.title || option?.textContent || `Produto #${id}`;
-        const price = option?.dataset?.price || '0';
-        const priceCents = parseToCents(price);
+        const price = window.__GELO_CAN_VIEW_FINANCIAL ? (option?.dataset?.price || '0') : '0';
+        const priceCents = window.__GELO_CAN_VIEW_FINANCIAL ? parseToCents(price) : 0;
 
         const prev = items.get(id);
         const nextQty = (prev?.quantity || 0) + quantity;
@@ -316,8 +336,8 @@ try {
         const option = Array.from(selectEl.options).find((o) => parseInt(o.value || '0', 10) === id);
         if (!option) return;
         const title = option?.dataset?.title || option?.textContent || `Produto #${id}`;
-        const price = option?.dataset?.price || '0';
-        const priceCents = parseToCents(price);
+                const price = window.__GELO_CAN_VIEW_FINANCIAL ? (option?.dataset?.price || '0') : '0';
+                const priceCents = window.__GELO_CAN_VIEW_FINANCIAL ? parseToCents(price) : 0;
         items.set(id, { id, title, priceCents, quantity });
       });
 

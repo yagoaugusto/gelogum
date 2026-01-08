@@ -69,9 +69,9 @@ if ($userId <= 0) {
 
 $orderUserId = $userId;
 if ($source === 'admin') {
-    if (!gelo_has_permission('withdrawals.create_for_client') || !gelo_has_permission('withdrawals.view_all')) {
+    if (!gelo_has_permission('withdrawals.create_for_client')) {
         gelo_flash_set('error', 'Você não tem permissão para criar pedidos para outros usuários.');
-        gelo_redirect(GELO_BASE_URL . '/withdrawal_new.php');
+        gelo_redirect($redirectNew);
     }
     if ($requestedUserId <= 0) {
         gelo_withdrawal_error('Selecione um cliente.', $redirectNew, $comment, $rawItems, 0);

@@ -36,7 +36,7 @@ $actorId = is_array($sessionUser) ? (int) ($sessionUser['id'] ?? 0) : 0;
 
 try {
     $pdo = gelo_pdo();
-    $stmt = $pdo->prepare('SELECT user_id, status FROM withdrawal_orders WHERE id = :id LIMIT 1');
+    $stmt = $pdo->prepare('SELECT user_id, created_by_user_id, status FROM withdrawal_orders WHERE id = :id LIMIT 1');
     $stmt->execute(['id' => $id]);
     $order = $stmt->fetch();
     if (!is_array($order)) {
@@ -45,7 +45,12 @@ try {
     }
 
     $orderUserId = (int) ($order['user_id'] ?? 0);
-    if (!$canViewAll && $orderUserId !== (int) ($sessionUser['id'] ?? 0)) {
+    $createdByUserId = (int) ($order['created_by_user_id'] ?? 0);
+    $isCreator = $createdByUserId > 0
+        && $createdByUserId === $actorId
+        && gelo_has_permission('withdrawals.create_for_client');
+
+    if (!$canViewAll && $orderUserId !== (int) ($sessionUser['id'] ?? 0) && !$isCreator) {
         gelo_flash_set('error', 'Você não tem permissão para cancelar este pedido.');
         gelo_redirect(GELO_BASE_URL . '/withdrawals.php');
     }

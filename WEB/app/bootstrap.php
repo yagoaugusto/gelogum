@@ -339,6 +339,11 @@ function gelo_permissions_catalog(): array
                 'description' => 'Permite ver pedidos de outros clientes.',
             ],
             [
+                'key' => 'withdrawals.view_financial',
+                'label' => 'Ver valores financeiros',
+                'description' => 'Permite ver colunas de valores (Total e Pagamentos) nas listagens de retiradas.',
+            ],
+            [
                 'key' => 'withdrawals.create_for_client',
                 'label' => 'Criar pedido (para cliente)',
                 'description' => 'Permite criar pedidos em nome de qualquer cliente.',

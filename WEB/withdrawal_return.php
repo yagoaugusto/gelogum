@@ -18,6 +18,7 @@ $error = gelo_flash_get('error');
 $success = gelo_flash_get('success');
 
 $canViewAll = gelo_has_permission('withdrawals.view_all');
+$canViewFinancial = gelo_has_permission('withdrawals.view_financial');
 $sessionUser = gelo_current_user();
 $sessionUserId = is_array($sessionUser) ? (int) ($sessionUser['id'] ?? 0) : 0;
 
@@ -33,6 +34,7 @@ try {
         SELECT
             o.id,
             o.user_id,
+            o.created_by_user_id,
             o.status,
             o.total_amount,
             o.total_items,
@@ -52,7 +54,14 @@ try {
         gelo_redirect(GELO_BASE_URL . '/withdrawals.php');
     }
 
-    if (!$canViewAll && (int) ($order['user_id'] ?? 0) !== $sessionUserId) {
+    $orderUserId = (int) ($order['user_id'] ?? 0);
+    $createdByUserId = (int) ($order['created_by_user_id'] ?? 0);
+    $isOwner = $orderUserId > 0 && $orderUserId === $sessionUserId;
+    $isCreator = $createdByUserId > 0
+        && $createdByUserId === $sessionUserId
+        && gelo_has_permission('withdrawals.create_for_client');
+
+    if (!$canViewAll && !$isOwner && !$isCreator) {
         gelo_flash_set('error', 'Você não tem permissão para acessar este pedido.');
         gelo_redirect(GELO_BASE_URL . '/withdrawals.php');
     }
@@ -160,7 +169,9 @@ if (bccomp($netTotal, '0.00', 2) < 0) {
                                     <thead>
                                         <tr>
                                             <th>Produto</th>
-                                            <th class="text-right">Preço</th>
+                                            <?php if ($canViewFinancial): ?>
+                                                <th class="text-right">Preço</th>
+                                            <?php endif; ?>
                                             <th class="text-right">Qtd</th>
                                             <th class="text-right">Já devolvida</th>
                                             <th class="text-right">Disponível</th>
@@ -178,7 +189,9 @@ if (bccomp($netTotal, '0.00', 2) < 0) {
                                             ?>
                                             <tr>
                                                 <td class="font-medium"><?= gelo_e((string) ($it['product_title'] ?? '')) ?></td>
-                                                <td class="text-right"><?= gelo_e(gelo_format_money($unitPrice)) ?></td>
+                                                <?php if ($canViewFinancial): ?>
+                                                    <td class="text-right"><?= gelo_e(gelo_format_money($unitPrice)) ?></td>
+                                                <?php endif; ?>
                                                 <td class="text-right"><?= $orderedQty ?></td>
                                                 <td class="text-right"><?= $alreadyReturned ?></td>
                                                 <td class="text-right font-medium"><?= $available ?></td>
@@ -193,7 +206,7 @@ if (bccomp($netTotal, '0.00', 2) < 0) {
                                                         value="0"
                                                         inputmode="numeric"
                                                         data-role="return-qty"
-                                                        data-price="<?= gelo_e($unitPrice) ?>"
+                                                        <?= $canViewFinancial ? ('data-price="' . gelo_e($unitPrice) . '"') : '' ?>
                                                         <?= $available === 0 ? 'readonly' : '' ?>
                                                     />
                                                 </td>
@@ -222,17 +235,21 @@ if (bccomp($netTotal, '0.00', 2) < 0) {
                                     <span class="opacity-70">Itens devolvidos</span>
                                     <span class="font-medium" id="returnTotalItems">0</span>
                                 </div>
-                                <div class="flex items-center justify-between">
-                                    <span class="opacity-70">Valor devolvido</span>
-                                    <span class="font-semibold text-base" id="returnTotalAmount">R$ 0,00</span>
-                                </div>
+                                <?php if ($canViewFinancial): ?>
+                                    <div class="flex items-center justify-between">
+                                        <span class="opacity-70">Valor devolvido</span>
+                                        <span class="font-semibold text-base" id="returnTotalAmount">R$ 0,00</span>
+                                    </div>
+                                <?php endif; ?>
                             </div>
 
                             <div class="divider my-4"></div>
 
                             <div class="text-xs opacity-70 space-y-1">
-                                <div>Valor do pedido: <span class="font-medium"><?= gelo_e(gelo_format_money($orderTotal)) ?></span></div>
-                                <div>Saldo atual: <span class="font-medium"><?= gelo_e(gelo_format_money($netTotal)) ?></span></div>
+                                <?php if ($canViewFinancial): ?>
+                                    <div>Valor do pedido: <span class="font-medium"><?= gelo_e(gelo_format_money($orderTotal)) ?></span></div>
+                                    <div>Saldo atual: <span class="font-medium"><?= gelo_e(gelo_format_money($netTotal)) ?></span></div>
+                                <?php endif; ?>
                                 <div class="mt-2">
                                     Retorno só é permitido antes de iniciar pagamentos.
                                 </div>
@@ -248,6 +265,7 @@ if (bccomp($netTotal, '0.00', 2) < 0) {
     </main>
 
     <script>
+            window.__GELO_CAN_VIEW_FINANCIAL = <?= $canViewFinancial ? 'true' : 'false' ?>;
       const parseToCents = (decimal) => {
         const v = String(decimal || '0').trim().replace(',', '.');
         const m = v.match(/^(-)?(\d+)(?:\.(\d{1,2}))?$/);
@@ -277,14 +295,18 @@ if (bccomp($netTotal, '0.00', 2) < 0) {
         document.querySelectorAll('input[data-role="return-qty"]').forEach((input) => {
           const qty = parseInt(input.value || '0', 10);
           if (!Number.isFinite(qty) || qty <= 0) return;
-          const price = input.dataset.price || '0';
-          const priceCents = parseToCents(price);
+                    const price = window.__GELO_CAN_VIEW_FINANCIAL ? (input.dataset.price || '0') : '0';
+                    const priceCents = window.__GELO_CAN_VIEW_FINANCIAL ? parseToCents(price) : 0;
           totalItems += qty;
-          totalCents += qty * priceCents;
+                    if (window.__GELO_CAN_VIEW_FINANCIAL) {
+                        totalCents += qty * priceCents;
+                    }
         });
 
         if (totalItemsEl) totalItemsEl.textContent = String(totalItems);
-        if (totalAmountEl) totalAmountEl.textContent = formatMoney(totalCents);
+                if (window.__GELO_CAN_VIEW_FINANCIAL && totalAmountEl) {
+                    totalAmountEl.textContent = formatMoney(totalCents);
+                }
       };
 
       document.querySelectorAll('input[data-role="return-qty"]').forEach((input) => {

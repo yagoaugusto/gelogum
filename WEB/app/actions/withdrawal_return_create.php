@@ -59,7 +59,7 @@ $canViewAll = gelo_has_permission('withdrawals.view_all');
 try {
     $pdo = gelo_pdo();
 
-    $stmt = $pdo->prepare('SELECT user_id, status FROM withdrawal_orders WHERE id = :id LIMIT 1');
+    $stmt = $pdo->prepare('SELECT user_id, created_by_user_id, status FROM withdrawal_orders WHERE id = :id LIMIT 1');
     $stmt->execute(['id' => $orderId]);
     $order = $stmt->fetch();
     if (!is_array($order)) {
@@ -67,7 +67,13 @@ try {
         gelo_redirect(GELO_BASE_URL . '/withdrawals.php');
     }
 
-    if (!$canViewAll && (int) ($order['user_id'] ?? 0) !== $actorId) {
+    $orderUserId = (int) ($order['user_id'] ?? 0);
+    $createdByUserId = (int) ($order['created_by_user_id'] ?? 0);
+    $isCreator = $createdByUserId > 0
+        && $createdByUserId === $actorId
+        && gelo_has_permission('withdrawals.create_for_client');
+
+    if (!$canViewAll && $orderUserId !== $actorId && !$isCreator) {
         gelo_flash_set('error', 'Você não tem permissão para acessar este pedido.');
         gelo_redirect(GELO_BASE_URL . '/withdrawals.php');
     }

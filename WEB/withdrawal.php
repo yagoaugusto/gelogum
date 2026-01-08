@@ -12,6 +12,7 @@ if ($id <= 0) {
 }
 
 $canViewAll = gelo_has_permission('withdrawals.view_all');
+$canViewFinancial = gelo_has_permission('withdrawals.view_financial');
 $sessionUser = gelo_current_user();
 $sessionUserId = is_array($sessionUser) ? (int) ($sessionUser['id'] ?? 0) : 0;
 
@@ -58,7 +59,14 @@ try {
         gelo_redirect(GELO_BASE_URL . '/withdrawals.php');
     }
 
-    if (!$canViewAll && (int) ($order['user_id'] ?? 0) !== $sessionUserId) {
+	$orderUserId = (int) ($order['user_id'] ?? 0);
+	$createdByUserId = (int) ($order['created_by_user_id'] ?? 0);
+	$isOwner = $orderUserId > 0 && $orderUserId === $sessionUserId;
+	$isCreator = $createdByUserId > 0
+		&& $createdByUserId === $sessionUserId
+		&& gelo_has_permission('withdrawals.create_for_client');
+
+	if (!$canViewAll && !$isOwner && !$isCreator) {
         gelo_flash_set('error', 'Você não tem permissão para acessar este pedido.');
         gelo_redirect(GELO_BASE_URL . '/withdrawals.php');
     }
@@ -185,7 +193,11 @@ $isCancelled = $status === 'cancelled';
 $isRequested = $status === 'requested';
 
 $orderUserId = is_array($order) ? (int) ($order['user_id'] ?? 0) : 0;
+$createdByUserId = is_array($order) ? (int) ($order['created_by_user_id'] ?? 0) : 0;
 $isOwner = $orderUserId > 0 && $orderUserId === $sessionUserId;
+$isCreator = $createdByUserId > 0
+	&& $createdByUserId === $sessionUserId
+	&& gelo_has_permission('withdrawals.create_for_client');
 
 $orderTotal = is_array($order) ? (string) ($order['total_amount'] ?? '0.00') : '0.00';
 $netTotal = bcsub($orderTotal, $returnedAmount, 2);
@@ -198,10 +210,10 @@ if (bccomp($remaining, '0.00', 2) < 0) {
 }
 $isPaid = bccomp($remaining, '0.00', 2) <= 0 && bccomp($netTotal, '0.00', 2) === 1;
 
-$canCancel = gelo_has_permission('withdrawals.cancel') && !$isCancelled && !$isSaida && ($isOwner || $canViewAll);
-$canDeliver = gelo_has_permission('withdrawals.deliver') && $isRequested;
-$canReturn = gelo_has_permission('withdrawals.return') && $isSaida && $paymentCount === 0;
-$canPay = gelo_has_permission('withdrawals.pay') && $isSaida && bccomp($remaining, '0.00', 2) === 1;
+$canCancel = gelo_has_permission('withdrawals.cancel') && !$isCancelled && !$isSaida && ($isOwner || $canViewAll || $isCreator);
+$canDeliver = gelo_has_permission('withdrawals.deliver') && $isRequested && ($isOwner || $canViewAll || $isCreator);
+$canReturn = gelo_has_permission('withdrawals.return') && $isSaida && $paymentCount === 0 && ($isOwner || $canViewAll || $isCreator);
+$canPay = gelo_has_permission('withdrawals.pay') && $isSaida && bccomp($remaining, '0.00', 2) === 1 && ($isOwner || $canViewAll || $isCreator);
 
 if ($isSaida) {
     $statusLabel = 'Saída';
@@ -289,12 +301,16 @@ if ($isSaida) {
 	                                            <div class="flex items-start justify-between gap-3">
 	                                                <div class="min-w-0">
 	                                                    <div class="font-medium truncate"><?= gelo_e((string) ($it['product_title'] ?? '')) ?></div>
-	                                                    <div class="text-xs opacity-70 mt-1">Preço: <?= gelo_e(gelo_format_money($it['unit_price'] ?? 0)) ?></div>
+	                                                    <?php if ($canViewFinancial): ?>
+	                                                        <div class="text-xs opacity-70 mt-1">Preço: <?= gelo_e(gelo_format_money($it['unit_price'] ?? 0)) ?></div>
+	                                                    <?php endif; ?>
 	                                                </div>
-	                                                <div class="text-right shrink-0">
-	                                                    <div class="font-semibold"><?= gelo_e(gelo_format_money($netLine)) ?></div>
-	                                                    <div class="text-xs opacity-70">Subtotal</div>
-	                                                </div>
+	                                                <?php if ($canViewFinancial): ?>
+	                                                    <div class="text-right shrink-0">
+	                                                        <div class="font-semibold"><?= gelo_e(gelo_format_money($netLine)) ?></div>
+	                                                        <div class="text-xs opacity-70">Subtotal</div>
+	                                                    </div>
+	                                                <?php endif; ?>
 	                                            </div>
 	                                            <div class="mt-3 grid grid-cols-2 gap-x-6 gap-y-2">
 	                                                <div class="text-xs opacity-70">Qtd</div>
@@ -314,11 +330,13 @@ if ($isSaida) {
 	                                    <thead>
 	                                        <tr>
 	                                            <th>Produto</th>
-	                                            <th class="text-right">Preço</th>
 	                                            <th class="text-right">Qtd</th>
 	                                            <th class="text-right">Devolvida</th>
                                                 <th class="text-right">Saída</th>
-	                                            <th class="text-right">Subtotal</th>
+	                                            <?php if ($canViewFinancial): ?>
+	                                                <th class="text-right">Preço</th>
+	                                                <th class="text-right">Subtotal</th>
+	                                            <?php endif; ?>
 	                                        </tr>
 	                                    </thead>
 	                                    <tbody>
@@ -336,11 +354,13 @@ if ($isSaida) {
 	                                            ?>
 	                                            <tr>
 	                                                <td class="font-medium"><?= gelo_e((string) ($it['product_title'] ?? '')) ?></td>
-	                                                <td class="text-right"><?= gelo_e(gelo_format_money($it['unit_price'] ?? 0)) ?></td>
 	                                                <td class="text-right"><?= $orderedQty ?></td>
 	                                                <td class="text-right"><?= $retQty ?></td>
 	                                                <td class="text-right font-medium"><?= $netQty ?></td>
-	                                                <td class="text-right font-medium"><?= gelo_e(gelo_format_money($netLine)) ?></td>
+	                                                <?php if ($canViewFinancial): ?>
+	                                                    <td class="text-right"><?= gelo_e(gelo_format_money($it['unit_price'] ?? 0)) ?></td>
+	                                                    <td class="text-right font-medium"><?= gelo_e(gelo_format_money($netLine)) ?></td>
+	                                                <?php endif; ?>
 	                                            </tr>
 	                                        <?php endforeach; ?>
 	                                    </tbody>
@@ -390,7 +410,12 @@ if ($isSaida) {
                                             <summary class="collapse-title">
                                                 <div class="flex flex-col gap-1 sm:flex-row sm:items-center sm:justify-between">
                                                     <div class="font-medium"><?= gelo_e($evAtLabel) ?> · <?= gelo_e($evBy) ?></div>
-                                                    <div class="text-sm opacity-80"><?= $evItems ?> itens · <?= gelo_e(gelo_format_money($evAmount)) ?></div>
+													<div class="text-sm opacity-80">
+														<?= $evItems ?> itens
+														<?php if ($canViewFinancial): ?>
+															· <?= gelo_e(gelo_format_money($evAmount)) ?>
+														<?php endif; ?>
+													</div>
                                                 </div>
                                             </summary>
                                             <div class="collapse-content">
@@ -405,10 +430,12 @@ if ($isSaida) {
 	                                                                        <div class="text-sm font-medium truncate"><?= gelo_e((string) ($r['product_title'] ?? '')) ?></div>
 	                                                                        <div class="text-xs opacity-70 mt-1">Qtd: <?= (int) ($r['quantity'] ?? 0) ?></div>
 	                                                                    </div>
-	                                                                    <div class="text-right shrink-0">
-	                                                                        <div class="text-sm font-semibold"><?= gelo_e(gelo_format_money($r['line_total'] ?? 0)) ?></div>
-	                                                                        <div class="text-xs opacity-70">Valor</div>
-	                                                                    </div>
+	                                                                    <?php if ($canViewFinancial): ?>
+	                                                                        <div class="text-right shrink-0">
+	                                                                            <div class="text-sm font-semibold"><?= gelo_e(gelo_format_money($r['line_total'] ?? 0)) ?></div>
+	                                                                            <div class="text-xs opacity-70">Valor</div>
+	                                                                        </div>
+	                                                                    <?php endif; ?>
 	                                                                </div>
 	                                                            </div>
 	                                                        <?php endforeach; ?>
@@ -420,7 +447,9 @@ if ($isSaida) {
 	                                                                <tr>
 	                                                                    <th>Item</th>
                                                                     <th class="text-right">Qtd</th>
-                                                                    <th class="text-right">Valor</th>
+																	<?php if ($canViewFinancial): ?>
+																		<th class="text-right">Valor</th>
+																	<?php endif; ?>
                                                                 </tr>
                                                             </thead>
                                                             <tbody>
@@ -428,7 +457,9 @@ if ($isSaida) {
                                                                     <tr>
                                                                         <td><?= gelo_e((string) ($r['product_title'] ?? '')) ?></td>
                                                                         <td class="text-right"><?= (int) ($r['quantity'] ?? 0) ?></td>
-                                                                        <td class="text-right"><?= gelo_e(gelo_format_money($r['line_total'] ?? 0)) ?></td>
+																		<?php if ($canViewFinancial): ?>
+																			<td class="text-right"><?= gelo_e(gelo_format_money($r['line_total'] ?? 0)) ?></td>
+																		<?php endif; ?>
                                                                     </tr>
                                                                 <?php endforeach; ?>
 	                                                            </tbody>
@@ -453,26 +484,28 @@ if ($isSaida) {
                                     <span class="opacity-70">Total de itens</span>
                                     <span class="font-medium"><?= (int) ($order['total_items'] ?? 0) ?></span>
                                 </div>
-                                <div class="flex items-center justify-between">
-                                    <span class="opacity-70">Valor do pedido</span>
-                                    <span class="font-semibold"><?= gelo_e(gelo_format_money($orderTotal)) ?></span>
-                                </div>
-                                <div class="flex items-center justify-between">
-                                    <span class="opacity-70">Devolvido</span>
-                                    <span class="font-medium"><?= gelo_e(gelo_format_money($returnedAmount)) ?></span>
-                                </div>
-                                <div class="flex items-center justify-between">
-                                    <span class="opacity-70">Total a pagar</span>
-                                    <span class="font-semibold text-base"><?= gelo_e(gelo_format_money($netTotal)) ?></span>
-                                </div>
-                                <div class="flex items-center justify-between">
-                                    <span class="opacity-70">Pago</span>
-                                    <span class="font-medium"><?= gelo_e(gelo_format_money($paidAmount)) ?></span>
-                                </div>
-                                <div class="flex items-center justify-between">
-                                    <span class="opacity-70">Em aberto</span>
-                                    <span class="font-semibold"><?= gelo_e(gelo_format_money($remaining)) ?></span>
-                                </div>
+								<?php if ($canViewFinancial): ?>
+									<div class="flex items-center justify-between">
+										<span class="opacity-70">Valor do pedido</span>
+										<span class="font-semibold"><?= gelo_e(gelo_format_money($orderTotal)) ?></span>
+									</div>
+									<div class="flex items-center justify-between">
+										<span class="opacity-70">Devolvido</span>
+										<span class="font-medium"><?= gelo_e(gelo_format_money($returnedAmount)) ?></span>
+									</div>
+									<div class="flex items-center justify-between">
+										<span class="opacity-70">Total a pagar</span>
+										<span class="font-semibold text-base"><?= gelo_e(gelo_format_money($netTotal)) ?></span>
+									</div>
+									<div class="flex items-center justify-between">
+										<span class="opacity-70">Pago</span>
+										<span class="font-medium"><?= gelo_e(gelo_format_money($paidAmount)) ?></span>
+									</div>
+									<div class="flex items-center justify-between">
+										<span class="opacity-70">Em aberto</span>
+										<span class="font-semibold"><?= gelo_e(gelo_format_money($remaining)) ?></span>
+									</div>
+								<?php endif; ?>
 
                                 <div class="divider my-4"></div>
                                 <div class="text-xs opacity-70 space-y-1">
@@ -494,7 +527,7 @@ if ($isSaida) {
 	                        </div>
 	                    </div>
 	
-	                    <?php if ($isSaida || $paymentCount > 0): ?>
+	                    <?php if (($isSaida || $paymentCount > 0) && $canViewFinancial): ?>
 		                        <div class="card bg-base-100 shadow-xl ring-1 ring-base-300/60">
 		                            <div class="card-body p-4 sm:p-8">
 		                                <div class="flex items-center justify-between gap-3">

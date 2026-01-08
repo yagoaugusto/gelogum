@@ -304,7 +304,6 @@ function gelo_whatsapp_notify_order(int $orderId, ?string $oldStatus, string $ne
                 $baseLines[] = $li;
             }
         }
-        $baseLines[] = 'Total: ' . gelo_format_money($row['total_amount'] ?? 0);
 
         $comment = trim((string) ($row['comment'] ?? ''));
         if ($comment !== '') {
@@ -454,7 +453,6 @@ function gelo_whatsapp_notify_order_return(int $orderId, int $returnId): void
                 $baseLines[] = $li;
             }
         }
-        $baseLines[] = 'Total do retorno: ' . gelo_format_money($returnedTotal);
 
         $reason = trim((string) ($ret['reason'] ?? ''));
         if ($reason !== '') {
@@ -465,8 +463,6 @@ function gelo_whatsapp_notify_order_return(int $orderId, int $returnId): void
         if ($comment !== '') {
             $baseLines[] = 'Obs.: ' . $comment;
         }
-
-        $baseLines[] = 'Total do pedido: ' . gelo_format_money($order['total_amount'] ?? 0);
 
         $userPhone = (string) ($order['user_phone'] ?? '');
         $userTo = gelo_whatsapp_normalize_to($userPhone);
@@ -561,41 +557,11 @@ function gelo_whatsapp_notify_order_payment(int $orderId, int $paymentId): void
             return;
         }
 
-        $returnsTotal = '0.00';
-        $stmt = $pdo->prepare('
-            SELECT COALESCE(SUM(ri.line_total), 0) AS returned_amount
-            FROM withdrawal_returns r
-            INNER JOIN withdrawal_return_items ri ON ri.return_id = r.id
-            WHERE r.order_id = :id
-        ');
-        $stmt->execute(['id' => $orderId]);
-        $ret = $stmt->fetch();
-        if (is_array($ret) && isset($ret['returned_amount'])) {
-            $returnsTotal = (string) $ret['returned_amount'];
-        }
-
-        $paidTotal = '0.00';
-        $stmt = $pdo->prepare('SELECT COALESCE(SUM(amount), 0) AS paid_amount FROM withdrawal_payments WHERE order_id = :id');
-        $stmt->execute(['id' => $orderId]);
-        $pt = $stmt->fetch();
-        if (is_array($pt) && isset($pt['paid_amount'])) {
-            $paidTotal = (string) $pt['paid_amount'];
-        }
-
-        $orderTotal = (string) ($order['total_amount'] ?? '0.00');
-        $netTotal = bcsub($orderTotal, $returnsTotal, 2);
-        if (bccomp($netTotal, '0.00', 2) < 0) {
-            $netTotal = '0.00';
-        }
-        $openTotal = bcsub($netTotal, $paidTotal, 2);
-        if (bccomp($openTotal, '0.00', 2) < 0) {
-            $openTotal = '0.00';
-        }
+        // Alertas WPP (exceto resumo do dia) não devem conter valores financeiros.
 
         $status = (string) ($order['status'] ?? '');
         $statusLabel = $status !== '' ? gelo_whatsapp_status_label($status) : '';
 
-        $paymentAmount = (string) ($pay['amount'] ?? '0.00');
         $method = (string) ($pay['method'] ?? '');
         $methodLabel = $method;
         if (function_exists('gelo_withdrawal_payment_method_label')) {
@@ -612,15 +578,12 @@ function gelo_whatsapp_notify_order_payment(int $orderId, int $paymentId): void
             $baseLines[] = 'Status: ' . $statusLabel;
         }
         $baseLines[] = 'Evento: Pagamento registrado';
-        $baseLines[] = 'Pagamento: ' . $methodLabel . ' · ' . gelo_format_money($paymentAmount);
+        $baseLines[] = 'Tipo: ' . $methodLabel;
 
         $note = trim((string) ($pay['note'] ?? ''));
         if ($note !== '') {
             $baseLines[] = 'Obs.: ' . $note;
         }
-
-        $baseLines[] = 'Total pago: ' . gelo_format_money($paidTotal);
-        $baseLines[] = 'Em aberto: ' . gelo_format_money($openTotal);
 
         $comment = trim((string) ($order['comment'] ?? ''));
         if ($comment !== '') {
@@ -747,11 +710,10 @@ function gelo_whatsapp_notify_user_payment(int $userPaymentId): void
                 continue;
             }
             $oid = (int) ($a['order_id'] ?? 0);
-            $amt = (string) ($a['amount'] ?? '0.00');
             if ($oid <= 0) {
                 continue;
             }
-            $allocLines[] = '- Pedido #' . $oid . ': ' . gelo_format_money($amt);
+            $allocLines[] = '- Pedido #' . $oid;
             $shown++;
         }
         if ($totalAllocs > $maxShown) {
@@ -766,9 +728,7 @@ function gelo_whatsapp_notify_user_payment(int $userPaymentId): void
             $baseLines[] = 'Cliente: ' . $customerName;
         }
 
-        $baseLines[] = 'Valor: ' . gelo_format_money($row['amount'] ?? 0);
         $baseLines[] = 'Método: ' . $methodLabel;
-        $baseLines[] = 'Em aberto: ' . gelo_format_money($row['open_before'] ?? 0) . ' → ' . gelo_format_money($row['open_after'] ?? 0);
 
         if (count($allocLines) > 0) {
             $baseLines[] = 'Compensação:';

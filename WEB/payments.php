@@ -2,7 +2,7 @@
 declare(strict_types=1);
 
 require_once __DIR__ . '/app/bootstrap.php';
-gelo_require_permission('withdrawals.access');
+gelo_require_permissions(['withdrawals.access', 'withdrawals.pay']);
 require_once __DIR__ . '/../API/config/database.php';
 
 $pageTitle = 'Pagamentos · GELO';

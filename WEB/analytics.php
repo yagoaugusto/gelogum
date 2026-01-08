@@ -9,84 +9,66 @@ $pageTitle = 'Analítico · GELO';
 $activePage = 'analytics';
 $error = gelo_flash_get('error');
 
+$isPdf = isset($_GET['pdf']) && (string) $_GET['pdf'] === '1';
+
 $user = gelo_current_user();
 $userId = is_array($user) ? (int) ($user['id'] ?? 0) : 0;
 $canViewAll = gelo_has_permission('withdrawals.view_all');
 
 $now = new DateTimeImmutable('now');
-$currentYear = (int) $now->format('Y');
-$currentMonth = (int) $now->format('n');
 
-$years = [];
-try {
-    $pdo = gelo_pdo();
-    $stmt = $pdo->query('SELECT DISTINCT YEAR(created_at) AS y FROM withdrawal_orders ORDER BY y DESC');
-    foreach ($stmt->fetchAll() as $row) {
-        $y = isset($row['y']) ? (int) $row['y'] : 0;
-        if ($y > 0) {
-            $years[] = $y;
-        }
+$startDateStr = isset($_GET['start_date']) ? trim((string) $_GET['start_date']) : '';
+$endDateStr = isset($_GET['end_date']) ? trim((string) $_GET['end_date']) : '';
+
+$localError = '';
+
+$startDate = null;
+if ($startDateStr !== '') {
+    $tmp = DateTimeImmutable::createFromFormat('!Y-m-d', $startDateStr);
+    if ($tmp instanceof DateTimeImmutable && $tmp->format('Y-m-d') === $startDateStr) {
+        $startDate = $tmp;
+    } else {
+        $localError = 'Data inicial inválida.';
     }
-} catch (Throwable $e) {
-    $years = [];
-}
-if (empty($years)) {
-    $years = [$currentYear];
 }
 
-$year = isset($_GET['year']) ? (int) $_GET['year'] : $currentYear;
-if (!in_array($year, $years, true)) {
-    $year = $years[0] ?? $currentYear;
-}
-
-$month = isset($_GET['month']) ? (int) $_GET['month'] : $currentMonth;
-if ($month < 1 || $month > 12) {
-    $month = $currentMonth;
-}
-
-$daysInMonth = cal_days_in_month(CAL_GREGORIAN, $month, $year);
-$weekOptions = [];
-for ($w = 1; $w <= 6; $w++) {
-    $startDay = (($w - 1) * 7) + 1;
-    if ($startDay > $daysInMonth) {
-        break;
+$endDate = null;
+if ($endDateStr !== '') {
+    $tmp = DateTimeImmutable::createFromFormat('!Y-m-d', $endDateStr);
+    if ($tmp instanceof DateTimeImmutable && $tmp->format('Y-m-d') === $endDateStr) {
+        $endDate = $tmp;
+    } else {
+        $localError = $localError !== '' ? $localError : 'Data final inválida.';
     }
-    $endDay = min($w * 7, $daysInMonth);
-    $weekOptions[$w] = [
-        'start' => $startDay,
-        'end' => $endDay,
-        'label' => sprintf('Semana %d (%02d–%02d)', $w, $startDay, $endDay),
-    ];
 }
 
-$week = isset($_GET['week']) ? (int) $_GET['week'] : 0;
-if ($week <= 0 || !isset($weekOptions[$week])) {
-    $week = 0;
+$defaultStart = $now->modify('first day of this month')->setTime(0, 0, 0);
+$defaultEnd = $now->setTime(0, 0, 0);
+
+$rangeStart = $startDate ?? $defaultStart;
+$rangeEnd = $endDate ?? $defaultEnd;
+if ($rangeEnd < $rangeStart) {
+    $tmp = $rangeStart;
+    $rangeStart = $rangeEnd;
+    $rangeEnd = $tmp;
 }
-
-$rangeStartDay = $week > 0 ? (int) $weekOptions[$week]['start'] : 1;
-$rangeEndDay = $week > 0 ? (int) $weekOptions[$week]['end'] : $daysInMonth;
-
-$rangeStart = new DateTimeImmutable(sprintf('%04d-%02d-%02d 00:00:00', $year, $month, $rangeStartDay));
-$rangeEnd = new DateTimeImmutable(sprintf('%04d-%02d-%02d 00:00:00', $year, $month, $rangeEndDay));
 $rangeEndExclusive = $rangeEnd->modify('+1 day');
+
+if ((!is_string($error) || $error === '') && $localError !== '') {
+    $error = $localError;
+}
 
 $rangeLabel = $rangeStart->format('d/m/Y') . ' · ' . $rangeEnd->format('d/m/Y');
 
-$months = [
-    1 => 'Janeiro',
-    2 => 'Fevereiro',
-    3 => 'Março',
-    4 => 'Abril',
-    5 => 'Maio',
-    6 => 'Junho',
-    7 => 'Julho',
-    8 => 'Agosto',
-    9 => 'Setembro',
-    10 => 'Outubro',
-    11 => 'Novembro',
-    12 => 'Dezembro',
-];
+$pdfQuery = [];
+if ($startDateStr !== '') {
+    $pdfQuery['start_date'] = $startDateStr;
+}
+if ($endDateStr !== '') {
+    $pdfQuery['end_date'] = $endDateStr;
+}
+$pdfQuery['pdf'] = '1';
+$pdfUrl = GELO_BASE_URL . '/analytics.php?' . http_build_query($pdfQuery);
 
 $summary = [
     'orders_count' => 0,
@@ -327,64 +309,92 @@ $filteredSalesByUser = $salesByUser;
 <html lang="pt-BR" data-theme="corporate">
 <head>
     <?php require __DIR__ . '/app/includes/head.php'; ?>
+
+    <style>
+        @media print {
+            .no-print { display: none !important; }
+            body { background: white !important; }
+        }
+    </style>
 </head>
-<body class="min-h-screen bg-base-200 overflow-x-hidden">
-    <?php require __DIR__ . '/app/includes/nav.php'; ?>
+<body class="min-h-screen <?= $isPdf ? 'bg-base-100' : 'bg-base-200' ?> overflow-x-hidden">
+    <?php if (!$isPdf): ?>
+        <?php require __DIR__ . '/app/includes/nav.php'; ?>
+    <?php endif; ?>
 
     <main class="mx-auto w-full max-w-7xl px-4 py-5 sm:p-6">
-        <div class="flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
-            <div>
-                <div class="flex flex-wrap items-center gap-2">
-                    <h1 class="text-2xl font-semibold tracking-tight">Analítico</h1>
-                    <span class="badge badge-outline"><?= gelo_e($rangeLabel) ?></span>
-                    <?php if (!$canViewAll): ?>
-                        <span class="badge badge-ghost">Meus dados</span>
-                    <?php endif; ?>
-                </div>
-                <p class="text-sm opacity-70 mt-1">KPIs e gráficos para entender pedidos, valores, devoluções e pagamentos.</p>
+        <?php if ($isPdf): ?>
+            <div class="no-print flex items-center justify-end">
+                <button class="btn btn-outline btn-sm" type="button" onclick="window.print()">Imprimir / Salvar PDF</button>
             </div>
-        </div>
 
-        <form class="mt-6 card bg-base-100 shadow-xl ring-1 ring-base-300/60" method="get" action="<?= gelo_e(GELO_BASE_URL . '/analytics.php') ?>">
-            <div class="card-body p-4 sm:p-5">
-                <div class="flex flex-col gap-3 lg:flex-row lg:items-end lg:justify-between">
-                    <div class="grid gap-3 sm:grid-cols-3 lg:max-w-3xl w-full">
-                        <label class="form-control w-full">
-                            <div class="label py-0"><span class="label-text text-xs opacity-70">Ano</span></div>
-                            <select class="select select-bordered select-sm w-full" name="year" required>
-                                <?php foreach ($years as $y): ?>
-                                    <option value="<?= (int) $y ?>" <?= ((int) $y === (int) $year) ? 'selected' : '' ?>><?= (int) $y ?></option>
-                                <?php endforeach; ?>
-                            </select>
-                        </label>
-
-                        <label class="form-control w-full">
-                            <div class="label py-0"><span class="label-text text-xs opacity-70">Mês</span></div>
-                            <select class="select select-bordered select-sm w-full" name="month" required>
-                                <?php foreach ($months as $m => $label): ?>
-                                    <option value="<?= (int) $m ?>" <?= ((int) $m === (int) $month) ? 'selected' : '' ?>><?= gelo_e($label) ?></option>
-                                <?php endforeach; ?>
-                            </select>
-                        </label>
-
-                        <label class="form-control w-full">
-                            <div class="label py-0"><span class="label-text text-xs opacity-70">Semana (opcional)</span></div>
-                            <select class="select select-bordered select-sm w-full" name="week">
-                                <option value="0" <?= $week === 0 ? 'selected' : '' ?>>Todas</option>
-                                <?php foreach ($weekOptions as $w => $meta): ?>
-                                    <option value="<?= (int) $w ?>" <?= ((int) $w === (int) $week) ? 'selected' : '' ?>><?= gelo_e((string) $meta['label']) ?></option>
-                                <?php endforeach; ?>
-                            </select>
-                        </label>
+            <div class="mt-3 rounded-box bg-base-100 shadow-xl ring-1 ring-base-300/60 p-5 sm:p-6">
+                <div class="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+                    <div class="flex items-center gap-4">
+                        <img src="<?= gelo_e(GELO_BASE_URL . '/logo.png') ?>" alt="GELO" class="h-10 w-auto" />
+                        <div>
+                            <div class="text-xl font-semibold leading-tight">Relatório Analítico</div>
+                            <div class="mt-1 text-sm opacity-70">Período: <?= gelo_e($rangeLabel) ?></div>
+                            <?php if (!$canViewAll): ?>
+                                <div class="mt-2"><span class="badge badge-ghost">Meus dados</span></div>
+                            <?php endif; ?>
+                        </div>
                     </div>
 
-                    <div class="flex flex-col gap-2 sm:flex-row sm:items-center">
-                        <button class="btn btn-primary btn-sm" type="submit">Aplicar</button>
-                        <a class="btn btn-ghost btn-sm" href="<?= gelo_e(GELO_BASE_URL . '/analytics.php') ?>">Mês atual</a>
+                    <div class="text-sm opacity-70 sm:text-right">
+                        <div class="text-xs uppercase tracking-wide opacity-60">Gerado em</div>
+                        <div class="mt-1 font-medium text-base-content"><?= gelo_e((new DateTimeImmutable('now'))->format('d/m/Y H:i')) ?></div>
                     </div>
                 </div>
             </div>
-        </form>
+
+            <script>
+                window.addEventListener('load', () => {
+                    setTimeout(() => window.print(), 350);
+                });
+            </script>
+        <?php endif; ?>
+
+        <?php if (!$isPdf): ?>
+            <div class="flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
+                <div>
+                    <div class="flex flex-wrap items-center gap-2">
+                        <h1 class="text-2xl font-semibold tracking-tight">Analítico</h1>
+                        <span class="badge badge-outline"><?= gelo_e($rangeLabel) ?></span>
+                        <?php if (!$canViewAll): ?>
+                            <span class="badge badge-ghost">Meus dados</span>
+                        <?php endif; ?>
+                    </div>
+                    <p class="text-sm opacity-70 mt-1">KPIs e gráficos para entender pedidos, valores, devoluções e pagamentos.</p>
+                </div>
+            </div>
+        <?php endif; ?>
+
+        <?php if (!$isPdf): ?>
+            <form class="mt-6 card bg-base-100 shadow-xl ring-1 ring-base-300/60" method="get" action="<?= gelo_e(GELO_BASE_URL . '/analytics.php') ?>">
+                <div class="card-body p-4 sm:p-5">
+                    <div class="flex flex-col gap-3 lg:flex-row lg:items-end lg:justify-between">
+                        <div class="grid gap-3 sm:grid-cols-2 lg:max-w-3xl w-full">
+                            <label class="form-control w-full">
+                                <div class="label py-0"><span class="label-text text-xs opacity-70">Data inicial (opcional)</span></div>
+                                <input class="input input-bordered input-sm w-full" type="date" name="start_date" value="<?= gelo_e($startDateStr) ?>" />
+                            </label>
+
+                            <label class="form-control w-full">
+                                <div class="label py-0"><span class="label-text text-xs opacity-70">Data final (opcional)</span></div>
+                                <input class="input input-bordered input-sm w-full" type="date" name="end_date" value="<?= gelo_e($endDateStr) ?>" />
+                            </label>
+                        </div>
+
+                        <div class="flex flex-col gap-2 sm:flex-row sm:items-center">
+                            <button class="btn btn-primary btn-sm" type="submit">Aplicar</button>
+                            <a class="btn btn-ghost btn-sm" href="<?= gelo_e(GELO_BASE_URL . '/analytics.php') ?>">Limpar</a>
+                            <a class="btn btn-outline btn-sm" href="<?= gelo_e($pdfUrl) ?>" target="_blank" rel="noopener">Gerar PDF</a>
+                        </div>
+                    </div>
+                </div>
+            </form>
+        <?php endif; ?>
 
         <?php if (is_string($error) && $error !== ''): ?>
             <div class="alert alert-error mt-4">
@@ -587,7 +597,7 @@ $filteredSalesByUser = $salesByUser;
         </div>
 
         <div class="mt-6 grid gap-4 items-start">
-            <?php $showFullDayLabel = $week > 0; ?>
+            <?php $showFullDayLabel = count($days) <= 10; ?>
 
             <div class="card bg-base-100 shadow-xl ring-1 ring-base-300/60">
                 <div class="card-body p-4 sm:p-6">

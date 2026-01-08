@@ -28,7 +28,7 @@ $actorId = is_array($sessionUser) ? (int) ($sessionUser['id'] ?? 0) : 0;
 
 try {
     $pdo = gelo_pdo();
-    $stmt = $pdo->prepare('SELECT user_id, status FROM withdrawal_orders WHERE id = :id LIMIT 1');
+    $stmt = $pdo->prepare('SELECT user_id, created_by_user_id, status FROM withdrawal_orders WHERE id = :id LIMIT 1');
     $stmt->execute(['id' => $id]);
     $row = $stmt->fetch();
     if (!is_array($row)) {
@@ -36,7 +36,13 @@ try {
         gelo_redirect(GELO_BASE_URL . '/withdrawals.php');
     }
 
-    if (!$canViewAll && (int) ($row['user_id'] ?? 0) !== $actorId) {
+    $orderUserId = (int) ($row['user_id'] ?? 0);
+    $createdByUserId = (int) ($row['created_by_user_id'] ?? 0);
+    $isCreator = $createdByUserId > 0
+        && $createdByUserId === $actorId
+        && gelo_has_permission('withdrawals.create_for_client');
+
+    if (!$canViewAll && $orderUserId !== $actorId && !$isCreator) {
         gelo_flash_set('error', 'Você não tem permissão para atualizar este pedido.');
         gelo_redirect(GELO_BASE_URL . '/withdrawals.php');
     }

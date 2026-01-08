@@ -14,7 +14,9 @@ $error = gelo_flash_get('error');
 $q = isset($_GET['q']) ? trim((string) $_GET['q']) : '';
 $status = isset($_GET['status']) ? (string) $_GET['status'] : 'all';
 $status = in_array($status, ['all', 'requested', 'saida', 'cancelled'], true) ? $status : 'all';
-$showPaymentColumn = $status === 'saida';
+$canViewFinancial = gelo_has_permission('withdrawals.view_financial');
+$showTotalColumn = $canViewFinancial;
+$showPaymentColumn = $status === 'saida' && $canViewFinancial;
 
 $mine = isset($_GET['mine']) ? strtolower(trim((string) $_GET['mine'])) : '';
 $forceMine = in_array($mine, ['1', 'true', 'yes'], true);
@@ -22,7 +24,7 @@ $mineQuery = $forceMine ? '&mine=1' : '';
 
 $hasViewAll = gelo_has_permission('withdrawals.view_all');
 $canViewAll = $hasViewAll && !$forceMine;
-$canCreateForClient = $hasViewAll && gelo_has_permission('withdrawals.create_for_client');
+$canCreateForClient = gelo_has_permission('withdrawals.create_for_client');
 $sessionUser = gelo_current_user();
 $sessionUserId = is_array($sessionUser) ? (int) ($sessionUser['id'] ?? 0) : 0;
 
@@ -30,12 +32,16 @@ $where = [];
 $params = [];
 
 if (!$canViewAll) {
-    $where[] = 'o.user_id = :user_id';
+    if ($canCreateForClient) {
+        $where[] = '(o.user_id = :user_id OR o.created_by_user_id = :user_id)';
+    } else {
+        $where[] = 'o.user_id = :user_id';
+    }
     $params['user_id'] = $sessionUserId;
 }
 
 if ($q !== '') {
-    if ($canViewAll) {
+    if ($canViewAll || $canCreateForClient) {
         $where[] = '(u.name LIKE :q_name OR u.phone LIKE :q_phone OR o.id = :qid)';
         $like = '%' . $q . '%';
         $params['q_name'] = $like;
@@ -163,7 +169,9 @@ try {
                                 <th>#</th>
                                 <th>Cliente</th>
                                 <th>Itens</th>
-                                <th>Total</th>
+                                <?php if ($showTotalColumn): ?>
+                                    <th>Total</th>
+                                <?php endif; ?>
                                 <?php if ($showPaymentColumn): ?>
                                     <th>Pagamento</th>
                                 <?php endif; ?>
@@ -175,7 +183,7 @@ try {
                         <tbody>
                             <?php if (empty($orders)): ?>
                                 <tr>
-                                    <td colspan="<?= 7 + ($showPaymentColumn ? 1 : 0) ?>" class="py-8 text-center opacity-70">Nenhum pedido encontrado.</td>
+                                    <td colspan="<?= 6 + ($showTotalColumn ? 1 : 0) + ($showPaymentColumn ? 1 : 0) ?>" class="py-8 text-center opacity-70">Nenhum pedido encontrado.</td>
                                 </tr>
                             <?php else: ?>
                                 <?php foreach ($orders as $o): ?>
@@ -232,7 +240,9 @@ try {
                                             <div class="text-xs opacity-70"><?= gelo_e(gelo_format_phone($clientPhone)) ?></div>
                                         </td>
                                         <td><?= (int) ($o['total_items'] ?? 0) ?></td>
-                                        <td><?= gelo_e(gelo_format_money($o['total_amount'] ?? 0)) ?></td>
+                                        <?php if ($showTotalColumn): ?>
+                                            <td><?= gelo_e(gelo_format_money($o['total_amount'] ?? 0)) ?></td>
+                                        <?php endif; ?>
                                         <?php if ($showPaymentColumn): ?>
                                             <td>
                                                 <div class="flex flex-col gap-1">
