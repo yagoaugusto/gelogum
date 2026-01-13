@@ -99,6 +99,7 @@ try {
                     <div class="flex gap-2">
                         <button class="btn btn-primary" type="submit">Carregar</button>
                         <a class="btn btn-ghost" href="<?= gelo_e(GELO_BASE_URL . '/user_product_prices.php') ?>">Limpar</a>
+                        <a class="btn btn-outline" href="<?= gelo_e(GELO_BASE_URL . '/app/actions/user_product_prices_export.php') ?>">Exportar Excel</a>
                     </div>
                 </form>
 
